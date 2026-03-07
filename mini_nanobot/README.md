@@ -4,7 +4,7 @@
 
 - CLI (`onboard/chat`)
 - OpenAI 兼容接口 provider
-- 4 个工具：`read_file` / `write_file` / `exec` / `analyze_parking`
+- 5 个工具：`read_file` / `write_file` / `exec` / `analyze_parking` / `analyze_planning_log`
 - 工具调用循环（tool-calling loop）
 - JSONL 会话持久化
 
@@ -91,6 +91,36 @@ python3 -m mini_nanobot chat -m "请分析这个泊车场景风险：车位宽2.
 - 空间/操作/感知子评分
 - 关键余量和最近障碍物
 - 可执行建议动作
+
+## 泊车规划 Log 分析（含 GUI 图表）
+
+`analyze_planning_log` 支持直接分析绝对路径日志（例如 J6B `planning.log.*`），会返回结构化诊断并生成 GUI 仪表盘 HTML。
+
+```bash
+python3 -m mini_nanobot chat -m "请分析这个日志：/Users/starktony/Downloads/J6B_LOG/planning.log.20260304164149，重点看规划稳定性和安全风险。"
+```
+
+显式工具调用示例：
+
+```text
+调用 analyze_planning_log，参数：
+{
+  "log_path": "/Users/starktony/Downloads/J6B_LOG/planning.log.20260304164149",
+  "focus": "comprehensive",
+  "save_report": true,
+  "generate_dashboard": true,
+  "report_dir": "reports",
+  "max_lines": 200000,
+  "evidence_limit": 8
+}
+```
+
+输出包含：
+- `summary`, `risk_level`, `score_0_to_100`
+- `key_metrics`（周期、抖动、重规划、轨迹几何指标等）
+- `top_anomalies`（含证据行）
+- `report_path`（JSON 报告）
+- `dashboard_path`（GUI 图表 HTML）
 
 ## 目录说明
 
