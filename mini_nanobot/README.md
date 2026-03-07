@@ -34,9 +34,12 @@ python3 -m mini_nanobot set-key YOUR_API_KEY
 {
   "api_key": "YOUR_API_KEY",
   "api_base": "https://open.bigmodel.cn/api/paas/v4",
-  "model": "glm-4-flash"
+  "model": "glm-4-flash",
+  "post_tool_analysis_rounds": 2
 }
 ```
+
+`post_tool_analysis_rounds` 表示工具返回后，大模型会做几轮复核总结再给最终结论（默认 2 轮，可调大）。
 
 ## 3. 运行
 

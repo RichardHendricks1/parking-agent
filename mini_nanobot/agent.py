@@ -10,6 +10,8 @@ from mini_nanobot.tools import ToolRegistry, parse_tool_args
 
 
 class MiniAgent:
+    POST_TOOL_ANALYSIS_TARGETS = {"analyze_planning_log"}
+
     def __init__(
         self,
         provider: OpenAICompatibleProvider,
@@ -19,6 +21,7 @@ class MiniAgent:
         max_iterations: int = 8,
         max_tokens: int = 1024,
         temperature: float = 0.2,
+        post_tool_analysis_rounds: int = 2,
     ):
         self.provider = provider
         self.tools = tools
@@ -26,6 +29,22 @@ class MiniAgent:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.post_tool_analysis_rounds = max(1, int(post_tool_analysis_rounds))
+
+    def _build_refinement_prompt(
+        self,
+        round_idx: int,
+        total_rounds: int,
+        tools_in_turn: set[str],
+    ) -> str:
+        tools_text = ", ".join(sorted(tools_in_turn)) if tools_in_turn else "none"
+        return (
+            f"请基于本轮已有工具输出与上一轮结论，进行第 {round_idx + 1}/{total_rounds} 轮复核分析。"
+            "要求：1) 校验是否有遗漏或矛盾；2) 引用关键证据（指标/阈值/异常）；"
+            "3) 给出更稳健的最终结论。"
+            f"本轮工具仅有：{tools_text}。"
+            "严格忽略本轮之前的历史工具结果（例如 analyze_parking 等），只基于当前回合工具产出复核。"
+        )
 
     def _pick_message(self, response: dict[str, Any]) -> dict[str, Any]:
         choices = response.get("choices") or []
@@ -37,6 +56,8 @@ class MiniAgent:
         history = self.session.load()
         messages: list[dict[str, Any]] = list(history)
         turn_messages: list[dict[str, Any]] = []
+        tools_used_in_turn: set[str] = set()
+        post_tool_rounds_done = 0
 
         user_msg = {"role": "user", "content": user_text}
         messages.append(user_msg)
@@ -73,6 +94,8 @@ class MiniAgent:
                     name = fn.get("name", "")
                     args = parse_tool_args(fn.get("arguments"))
                     result = self.tools.execute(name, args)
+                    if name:
+                        tools_used_in_turn.add(name)
                     tool_msg = {
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
@@ -87,6 +110,23 @@ class MiniAgent:
             final_msg = {"role": "assistant", "content": final_text}
             messages.append(final_msg)
             turn_messages.append(final_msg)
+            eligible_for_refine = bool(
+                tools_used_in_turn & self.POST_TOOL_ANALYSIS_TARGETS
+            )
+            if eligible_for_refine:
+                post_tool_rounds_done += 1
+                if post_tool_rounds_done < self.post_tool_analysis_rounds:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": self._build_refinement_prompt(
+                                post_tool_rounds_done,
+                                self.post_tool_analysis_rounds,
+                                tools_used_in_turn,
+                            ),
+                        }
+                    )
+                    continue
             break
 
         if not final_text:

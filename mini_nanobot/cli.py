@@ -44,6 +44,7 @@ def _build_agent() -> MiniAgent:
         max_iterations=cfg.max_iterations,
         max_tokens=cfg.max_tokens,
         temperature=cfg.temperature,
+        post_tool_analysis_rounds=cfg.post_tool_analysis_rounds,
     )
 
 
