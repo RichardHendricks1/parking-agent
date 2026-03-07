@@ -4,7 +4,7 @@
 
 - CLI (`onboard/chat`)
 - OpenAI 兼容接口 provider
-- 3 个工具：`read_file` / `write_file` / `exec`
+- 4 个工具：`read_file` / `write_file` / `exec` / `analyze_parking`
 - 工具调用循环（tool-calling loop）
 - JSONL 会话持久化
 
@@ -58,6 +58,40 @@ python3 -m mini_nanobot chat -m "你好，帮我创建 notes.txt 并写入 hello
 python3 -m mini_nanobot clear-session
 ```
 
+## 泊车分析示例
+
+你可以直接在 chat 中让 agent 调用 `analyze_parking`：
+
+```bash
+python3 -m mini_nanobot chat -m "请分析这个泊车场景风险：车位宽2.5m长5.2m，车宽1.86m车长4.75m，左0.28m右0.36m前0.42m后0.35m，速度2.5km/h，摄像头遮挡0.2，传感器置信度0.9。"
+```
+
+如果你想强制结构化输入，也可以这样说：
+
+```text
+调用 analyze_parking，scenario={
+  "slot_width_m": 2.5,
+  "slot_length_m": 5.2,
+  "vehicle_width_m": 1.86,
+  "vehicle_length_m": 4.75,
+  "left_clearance_m": 0.28,
+  "right_clearance_m": 0.36,
+  "front_clearance_m": 0.42,
+  "rear_clearance_m": 0.35,
+  "speed_kmh": 2.5,
+  "sensor_confidence": 0.9,
+  "camera_occlusion_ratio": 0.2,
+  "obstacles": [{"name": "pillar", "distance_m": 0.31, "relative_direction": "left-rear"}]
+}
+```
+
+工具会输出：
+- 是否可停 (`fit_feasible`)
+- 风险等级与风险分 (`risk_level`, `risk_score_0_to_100`)
+- 空间/操作/感知子评分
+- 关键余量和最近障碍物
+- 可执行建议动作
+
 ## 目录说明
 
 - `config.py`: 配置读写 + onboard
@@ -66,4 +100,3 @@ python3 -m mini_nanobot clear-session
 - `session.py`: JSONL 会话存储
 - `agent.py`: tool-calling 主循环
 - `cli.py`: 命令行入口
-

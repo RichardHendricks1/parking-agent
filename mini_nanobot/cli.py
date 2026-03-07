@@ -9,7 +9,7 @@ from mini_nanobot.agent import MiniAgent
 from mini_nanobot.config import ensure_workspace, load_config, onboard, save_config
 from mini_nanobot.provider import OpenAICompatibleProvider
 from mini_nanobot.session import SessionStore
-from mini_nanobot.tools import ExecTool, ReadFileTool, ToolRegistry, WriteFileTool
+from mini_nanobot.tools import AnalyzeParkingTool, ExecTool, ReadFileTool, ToolRegistry, WriteFileTool
 
 
 def _build_agent() -> MiniAgent:
@@ -26,6 +26,7 @@ def _build_agent() -> MiniAgent:
     tools.register(ReadFileTool(ws))
     tools.register(WriteFileTool(ws))
     tools.register(ExecTool(ws))
+    tools.register(AnalyzeParkingTool())
 
     session = SessionStore(ws, cfg.session_id)
     return MiniAgent(
