@@ -61,6 +61,29 @@ python3 -m mini_nanobot chat -m "你好，帮我创建 notes.txt 并写入 hello
 python3 -m mini_nanobot clear-session
 ```
 
+## 使用本地模型（Ollama）
+
+如果你想让 mini_nanobot 调本地小模型，可以一键切换：
+
+```bash
+python3 -m mini_nanobot use-local --model llama3.2:1b
+```
+
+这条命令会：
+- 用 `ollama pull` 下载模型（可用 `--skip-pull` 跳过）
+- 把配置切到本地 API：`http://127.0.0.1:11434/v1`
+- 将 model 设置为你指定的本地模型
+
+然后直接运行：
+
+```bash
+python3 -m mini_nanobot chat -m "你好，用本地模型回复"
+```
+
+说明：
+- 当 `api_base` 是本地地址（localhost/127.0.0.1）时，可以不依赖远端 API key。
+- 如果你使用的不是 Ollama，也可以用 `--api-base` 指向任意本地 OpenAI 兼容服务。
+
 ## 泊车分析示例
 
 你可以直接在 chat 中让 agent 调用 `analyze_parking`：

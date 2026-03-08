@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 from pathlib import Path
 
 from mini_nanobot.agent import MiniAgent
@@ -65,6 +67,34 @@ def cmd_set_key(key: str) -> int:
     return 0
 
 
+def cmd_use_local(model: str, api_base: str, skip_pull: bool = False) -> int:
+    cfg = load_config()
+
+    if not skip_pull:
+        if not shutil.which("ollama"):
+            print("Error: ollama not found.")
+            print("Install ollama first, or rerun with --skip-pull to use your own local OpenAI-compatible endpoint.")
+            return 1
+        print(f"Pulling local model via ollama: {model}")
+        proc = subprocess.run(["ollama", "pull", model], text=True)
+        if proc.returncode != 0:
+            print(f"Error: failed to pull model {model} (exit={proc.returncode})")
+            return proc.returncode
+
+    cfg.api_base = api_base.rstrip("/")
+    cfg.model = model
+    if not (cfg.api_key or "").strip():
+        cfg.api_key = "local"
+    save_config(cfg)
+
+    print("Configured local model for mini_nanobot:")
+    print(f"- model: {cfg.model}")
+    print(f"- api_base: {cfg.api_base}")
+    print("- api_key: local")
+    print("Run: python3 -m mini_nanobot chat")
+    return 0
+
+
 def cmd_chat(message: str | None = None) -> int:
     agent = _build_agent()
 
@@ -107,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     set_key = sub.add_parser("set-key", help="Save API key into config")
     set_key.add_argument("key", help="Provider API key")
 
+    local = sub.add_parser("use-local", help="Configure a local model endpoint (default: Ollama)")
+    local.add_argument("--model", default="llama3.2:1b", help="Local model name")
+    local.add_argument("--api-base", default="http://127.0.0.1:11434/v1", help="Local OpenAI-compatible API base")
+    local.add_argument("--skip-pull", action="store_true", help="Skip `ollama pull`")
+
     chat = sub.add_parser("chat", help="Interactive chat or one-shot message")
     chat.add_argument("-m", "--message", help="One-shot message")
 
@@ -120,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_onboard()
     if args.cmd == "set-key":
         return cmd_set_key(args.key)
+    if args.cmd == "use-local":
+        return cmd_use_local(args.model, args.api_base, args.skip_pull)
     if args.cmd == "chat":
         return cmd_chat(args.message)
     if args.cmd == "clear-session":
