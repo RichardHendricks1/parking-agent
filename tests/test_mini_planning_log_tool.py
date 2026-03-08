@@ -220,9 +220,13 @@ def test_analyze_planning_log_writes_json_and_gui_dashboard(tmp_path):
 
     report_obj = json.loads(Path(report_path).read_text(encoding="utf-8"))
     assert "summary" in report_obj
+    assert "trajectory_preview" in report_obj
+    assert len(report_obj["trajectory_preview"]) >= 1
     html = Path(dashboard_path).read_text(encoding="utf-8")
     assert "Planning Log Dashboard" in html
     assert "timerChart" in html
+    assert "trajectoryCanvas" in html
+    assert "trajectorySelect" in html
 
 
 def test_analyze_planning_log_tool_registry_integration(tmp_path):

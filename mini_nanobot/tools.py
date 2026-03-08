@@ -510,6 +510,7 @@ class AnalyzePlanningLogTool(Tool):
         timer_intervals_ms: list[float],
         fork_times: list[int],
         cycle_preview: list[dict[str, Any]],
+        trajectory_preview: list[dict[str, Any]],
     ) -> str:
         dashboard_data = {
             "timerIntervals": [round(v, 3) for v in timer_intervals_ms[:300]],
@@ -518,6 +519,7 @@ class AnalyzePlanningLogTool(Tool):
             "yawJump": [float(c["yaw_jump_max_deg"]) for c in cycle_preview[:200]],
             "pathLength": [float(c["path_length_m"]) for c in cycle_preview[:200]],
             "curvAbs": [float(c["curv_abs_max"]) for c in cycle_preview[:200]],
+            "trajectoryPreview": trajectory_preview[:24],
             "anomalies": [
                 {
                     "rule": a.get("rule"),
@@ -529,107 +531,217 @@ class AnalyzePlanningLogTool(Tool):
             ],
         }
         data_json = json.dumps(dashboard_data, ensure_ascii=False)
-        summary_safe = summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        risk_color = {"high": "#C53030", "medium": "#B7791F", "low": "#2F855A"}.get(risk_level, "#1A202C")
-        return f"""<!doctype html>
+        summary_safe = summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        log_path_safe = str(log_path).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        log_name_safe = log_path.name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+        risk_class = {"high": "risk-high", "medium": "risk-medium", "low": "risk-low"}.get(risk_level, "risk-medium")
+        html_template = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Planning Log Dashboard - {log_path.name}</title>
+  <title>Planning Log Dashboard - __LOG_NAME__</title>
   <style>
     :root {{
-      --bg: #f4f7fb;
+      --bg: #eef3fb;
       --card: #ffffff;
-      --text: #1a202c;
-      --muted: #4a5568;
-      --line: #d6deeb;
-      --accent: #1f6feb;
-      --ok: #2f855a;
+      --text: #10233f;
+      --muted: #4f6481;
+      --line: #d2deef;
+      --accent: #0f6bd9;
+      --ok: #0f9d6a;
       --warn: #b7791f;
       --bad: #c53030;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      background: radial-gradient(circle at top left, #e8f0fe 0%, var(--bg) 42%, #eef3fa 100%);
+      background:
+        radial-gradient(circle at 8% 10%, #dbeafe 0%, rgba(219, 234, 254, 0) 38%),
+        radial-gradient(circle at 90% 0%, #d1fae5 0%, rgba(209, 250, 229, 0) 30%),
+        linear-gradient(160deg, #edf3fb 0%, #f8fbff 100%);
       color: var(--text);
-      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-family: "Avenir Next", "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
     }}
-    .wrap {{ max-width: 1280px; margin: 0 auto; padding: 24px; }}
-    .header {{ display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }}
-    .title h1 {{ margin: 0; font-size: 28px; }}
-    .title .meta {{ color: var(--muted); font-size: 13px; margin-top: 6px; }}
+    .wrap {{ max-width: 1320px; margin: 0 auto; padding: 24px 20px 30px; }}
+    .hero {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 22px;
+      border-radius: 18px;
+      background:
+        linear-gradient(130deg, rgba(15,107,217,0.10), rgba(255,255,255,0.88)),
+        linear-gradient(45deg, rgba(16,35,63,0.05), rgba(16,35,63,0));
+      border: 1px solid #d8e5f7;
+      box-shadow: 0 14px 36px rgba(20, 56, 110, 0.12);
+      margin-bottom: 14px;
+    }}
+    .hero h1 {{ margin: 0; font-size: 30px; letter-spacing: 0.2px; }}
+    .hero .meta {{ margin-top: 6px; font-size: 13px; color: var(--muted); word-break: break-all; }}
+    .hero .summary {{
+      margin-top: 12px;
+      color: #0f2b4f;
+      background: rgba(255,255,255,0.78);
+      border: 1px solid #dbe7f8;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 860px;
+    }}
     .risk-chip {{
-      padding: 8px 14px; border-radius: 999px; font-size: 13px; color: #fff;
-      background: {risk_color}; font-weight: 600;
+      align-self: flex-start;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      box-shadow: 0 8px 18px rgba(17, 40, 77, 0.16);
     }}
-    .grid {{ display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }}
+    .risk-high {{ background: linear-gradient(135deg, #c53030, #ef4444); }}
+    .risk-medium {{ background: linear-gradient(135deg, #b7791f, #f59e0b); }}
+    .risk-low {{ background: linear-gradient(135deg, #0f9d6a, #10b981); }}
+
+    .grid {{ display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-top: 14px; }}
     .card {{
       background: var(--card);
-      border: 1px solid #e3eaf5;
-      border-radius: 14px;
-      box-shadow: 0 8px 30px rgba(8, 35, 78, 0.06);
-      padding: 14px;
+      border: 1px solid #dce7f6;
+      border-radius: 16px;
+      box-shadow: 0 10px 28px rgba(16, 44, 89, 0.08);
+      padding: 14px 15px;
     }}
-    .kpi {{ grid-column: span 3; }}
+    .kpi {{ grid-column: span 2; min-height: 108px; }}
+    .kpi.accent {{
+      background: linear-gradient(135deg, #0f6bd9 0%, #2c84ea 70%);
+      color: #fff;
+      border-color: transparent;
+    }}
     .kpi .label {{ color: var(--muted); font-size: 12px; }}
+    .kpi.accent .label {{ color: rgba(255,255,255,0.82); }}
     .kpi .val {{ font-size: 26px; font-weight: 700; margin-top: 6px; }}
-    .wide {{ grid-column: span 6; }}
+    .kpi .sub {{ margin-top: 6px; font-size: 11px; color: #6b7c96; }}
+    .kpi.accent .sub {{ color: rgba(255,255,255,0.80); }}
+    .wide {{ grid-column: span 6; min-height: 332px; }}
+    .trajectory-card {{ grid-column: span 12; }}
     .full {{ grid-column: span 12; }}
-    h3 {{ margin: 4px 0 10px 0; font-size: 16px; }}
-    canvas {{ width: 100%; height: 260px; background: #fbfdff; border-radius: 10px; border: 1px solid #edf2f7; }}
+    h3 {{ margin: 4px 0 10px 0; font-size: 16px; letter-spacing: 0.1px; }}
+    .hint {{ margin-top: -4px; margin-bottom: 8px; color: #6b7c96; font-size: 12px; }}
+    canvas {{ width: 100%; height: 250px; background: #fbfdff; border-radius: 10px; border: 1px solid #e7eef9; }}
+    #trajectoryCanvas {{ height: 420px; background: linear-gradient(180deg, #fbfdff 0%, #f5f9ff 100%); }}
+
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }}
+    .toolbar .left {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    select {{
+      border: 1px solid #d0def2;
+      border-radius: 10px;
+      padding: 6px 10px;
+      background: #fff;
+      color: #123054;
+      font-weight: 500;
+    }}
+    .legend {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #5a6e8d;
+      font-size: 12px;
+    }}
+    .legend .dot {{
+      width: 9px;
+      height: 9px;
+      border-radius: 99px;
+      display: inline-block;
+      margin-right: 5px;
+    }}
+
     table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     th, td {{ border-bottom: 1px solid #edf2f7; text-align: left; padding: 8px; vertical-align: top; }}
-    th {{ color: var(--muted); font-weight: 600; }}
+    th {{ color: var(--muted); font-weight: 650; background: #f8fbff; }}
     .sev-high {{ color: var(--bad); font-weight: 700; }}
     .sev-medium {{ color: var(--warn); font-weight: 700; }}
     .sev-low {{ color: var(--ok); font-weight: 700; }}
-    .summary {{
-      margin-top: 2px; margin-bottom: 12px;
-      color: #1f2937; background: #f8fbff; border: 1px solid #e6eefc;
-      border-radius: 10px; padding: 10px 12px; font-size: 14px;
-    }}
+
     @media (max-width: 980px) {{
+      .hero {{ flex-direction: column; }}
+      .kpi {{ grid-column: span 6; }}
+      .kpi.accent {{ grid-column: span 12; }}
       .kpi {{ grid-column: span 6; }}
       .wide {{ grid-column: span 12; }}
+      #trajectoryCanvas {{ height: 320px; }}
     }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="header">
-      <div class="title">
+    <div class="hero">
+      <div>
         <h1>Planning Log Dashboard</h1>
-        <div class="meta">{log_path}</div>
+        <div class="meta">__LOG_PATH__</div>
+        <div class="summary">__SUMMARY__</div>
       </div>
-      <div class="risk-chip">Risk: {risk_level} / Score: {score}</div>
+      <div class="risk-chip __RISK_CLASS__">Risk: __RISK_LEVEL__ / Score: __SCORE__</div>
     </div>
 
-    <div class="summary">{summary_safe}</div>
-
     <div class="grid">
-      <div class="card kpi"><div class="label">Cycle Count</div><div class="val">{key_metrics.get("cycle_count", 0)}</div></div>
-      <div class="card kpi"><div class="label">Parsed Lines</div><div class="val">{key_metrics.get("parsed_line_count", 0)}</div></div>
-      <div class="card kpi"><div class="label">Timer Jitter Count</div><div class="val">{key_metrics.get("timer_jitter_count", 0)}</div></div>
-      <div class="card kpi"><div class="label">Longest Replan Streak</div><div class="val">{key_metrics.get("longest_replan_streak", 0)}</div></div>
+      <div class="card kpi accent"><div class="label">Overall Risk Score</div><div class="val">__SCORE__</div><div class="sub">Focus: __FOCUS__</div></div>
+      <div class="card kpi"><div class="label">Cycle Count</div><div class="val">__CYCLE_COUNT__</div><div class="sub">with points: __CYCLE_WITH_POINTS__</div></div>
+      <div class="card kpi"><div class="label">Parsed Lines</div><div class="val">__PARSED_LINES__</div><div class="sub">total: __LINE_COUNT__</div></div>
+      <div class="card kpi"><div class="label">Timer Jitter</div><div class="val">__TIMER_JITTER__</div><div class="sub">out of [80, 140] ms</div></div>
+      <div class="card kpi"><div class="label">Replan Ratio</div><div class="val">__REPLAN_RATIO__</div><div class="sub">longest streak: __REPLAN_STREAK__</div></div>
+      <div class="card kpi"><div class="label">Top Severity</div><div class="val">__HIGH_ANOMALY_COUNT__</div><div class="sub">high anomalies</div></div>
 
       <div class="card wide">
         <h3>Timer Interval (ms)</h3>
+        <div class="hint">Planner loop interval trend with threshold lines.</div>
         <canvas id="timerChart"></canvas>
       </div>
       <div class="card wide">
         <h3>Fork Star Used Time (ms)</h3>
+        <div class="hint">Runtime cost distribution by cycle.</div>
         <canvas id="forkChart"></canvas>
       </div>
 
       <div class="card wide">
         <h3>Yaw Jump Max per Cycle (deg)</h3>
+        <div class="hint">Steering continuity risk view (threshold at 8 deg).</div>
         <canvas id="yawChart"></canvas>
       </div>
       <div class="card wide">
         <h3>Path Length / Curvature per Cycle</h3>
+        <div class="hint">Composite trend for trajectory scale and curvature intensity.</div>
         <canvas id="pathChart"></canvas>
+      </div>
+
+      <div class="card trajectory-card">
+        <h3>Output Trajectory Map</h3>
+        <div class="toolbar">
+          <div class="left">
+            <label for="trajectorySelect">Cycle:</label>
+            <select id="trajectorySelect"></select>
+            <span id="trajectoryMeta" class="hint"></span>
+          </div>
+          <div class="legend">
+            <span><span class="dot" style="background:#0f6bd9;"></span>selected</span>
+            <span><span class="dot" style="background:#ef4444;"></span>high</span>
+            <span><span class="dot" style="background:#f59e0b;"></span>medium</span>
+            <span><span class="dot" style="background:#94a3b8;"></span>normal</span>
+          </div>
+        </div>
+        <canvas id="trajectoryCanvas"></canvas>
       </div>
 
       <div class="card full">
@@ -642,27 +754,31 @@ class AnalyzePlanningLogTool(Tool):
     </div>
   </div>
 <script>
-const data = {data_json};
+const data = __DATA_JSON__;
+
+function yScale(min, max, h, pad) {
+  return (v) => {
+    if (max === min) return h / 2;
+    return h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+  };
+}
 
 function drawLine(canvasId, values, opts) {{
   const c = document.getElementById(canvasId);
   const ctx = c.getContext("2d");
-  const w = c.width = c.clientWidth * 2;
-  const h = c.height = c.clientHeight * 2;
+  c.width = c.clientWidth * 2;
+  c.height = c.clientHeight * 2;
   ctx.scale(2, 2);
   const vw = c.clientWidth, vh = c.clientHeight;
   ctx.clearRect(0, 0, vw, vh);
-  if (!values.length) {{
+  if (!values || !values.length) {{
     ctx.fillStyle = "#64748b"; ctx.fillText("No data", 12, 24); return;
   }}
   const min = Math.min(...values);
   const max = Math.max(...values);
   const pad = 28;
   const xStep = values.length > 1 ? (vw - pad * 2) / (values.length - 1) : 0;
-  const yMap = (v) => {{
-    if (max === min) return vh / 2;
-    return vh - pad - ((v - min) / (max - min)) * (vh - pad * 2);
-  }};
+  const yMap = yScale(min, max, vh, pad);
 
   ctx.strokeStyle = "#d9e2f0"; ctx.lineWidth = 1;
   for (let i = 0; i < 5; i++) {{
@@ -694,12 +810,12 @@ function drawLine(canvasId, values, opts) {{
 function drawBars(canvasId, values, color) {{
   const c = document.getElementById(canvasId);
   const ctx = c.getContext("2d");
-  const w = c.width = c.clientWidth * 2;
-  const h = c.height = c.clientHeight * 2;
+  c.width = c.clientWidth * 2;
+  c.height = c.clientHeight * 2;
   ctx.scale(2, 2);
   const vw = c.clientWidth, vh = c.clientHeight;
   ctx.clearRect(0, 0, vw, vh);
-  if (!values.length) {{
+  if (!values || !values.length) {{
     ctx.fillStyle = "#64748b"; ctx.fillText("No data", 12, 24); return;
   }}
   const pad = 28;
@@ -714,6 +830,111 @@ function drawBars(canvasId, values, color) {{
   }});
 }}
 
+function trajectoryColor(tag, selected) {
+  if (selected) return "#0f6bd9";
+  if (tag === "high") return "#ef4444";
+  if (tag === "medium") return "#f59e0b";
+  return "#94a3b8";
+}
+
+function drawTrajectoryMap(selectedCycleIndex) {
+  const c = document.getElementById("trajectoryCanvas");
+  const ctx = c.getContext("2d");
+  c.width = c.clientWidth * 2;
+  c.height = c.clientHeight * 2;
+  ctx.scale(2, 2);
+  const vw = c.clientWidth, vh = c.clientHeight;
+  ctx.clearRect(0, 0, vw, vh);
+  const trajectories = data.trajectoryPreview || [];
+  if (!trajectories.length) {
+    ctx.fillStyle = "#64748b";
+    ctx.fillText("No trajectory preview data", 16, 24);
+    return;
+  }
+
+  const allPts = [];
+  trajectories.forEach(t => (t.points_xy_m || []).forEach(p => allPts.push(p)));
+  if (!allPts.length) {
+    ctx.fillStyle = "#64748b";
+    ctx.fillText("No trajectory points", 16, 24);
+    return;
+  }
+
+  const xs = allPts.map(p => p[0]);
+  const ys = allPts.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 34;
+
+  const scaleX = (x) => {
+    if (maxX === minX) return vw / 2;
+    return pad + ((x - minX) / (maxX - minX)) * (vw - pad * 2);
+  };
+  const scaleY = (y) => {
+    if (maxY === minY) return vh / 2;
+    return vh - pad - ((y - minY) / (maxY - minY)) * (vh - pad * 2);
+  };
+
+  ctx.strokeStyle = "#deebfb";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const x = pad + (i * (vw - pad * 2) / 5);
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, vh - pad); ctx.stroke();
+  }
+  for (let i = 0; i < 6; i++) {
+    const y = pad + (i * (vh - pad * 2) / 5);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(vw - pad, y); ctx.stroke();
+  }
+
+  trajectories.forEach(t => {
+    const pts = t.points_xy_m || [];
+    if (pts.length < 2) return;
+    const selected = t.cycle_index === selectedCycleIndex;
+    ctx.lineWidth = selected ? 2.8 : 1.2;
+    ctx.strokeStyle = trajectoryColor(t.risk_tag, selected);
+    ctx.globalAlpha = selected ? 1.0 : 0.35;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = scaleX(p[0]);
+      const y = scaleY(p[1]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    if (selected) {
+      const first = pts[0], last = pts[pts.length - 1];
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = "#16a34a";
+      ctx.beginPath(); ctx.arc(scaleX(first[0]), scaleY(first[1]), 3.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#dc2626";
+      ctx.beginPath(); ctx.arc(scaleX(last[0]), scaleY(last[1]), 3.8, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function initTrajectorySelector() {
+  const trajectories = data.trajectoryPreview || [];
+  const sel = document.getElementById("trajectorySelect");
+  const meta = document.getElementById("trajectoryMeta");
+  if (!trajectories.length) {
+    sel.innerHTML = "<option>No trajectory</option>";
+    drawTrajectoryMap(-1);
+    return;
+  }
+  sel.innerHTML = trajectories.map((t, i) =>
+    `<option value="${t.cycle_index}" ${i === 0 ? "selected" : ""}>Cycle ${t.cycle_index} (${t.risk_tag})</option>`
+  ).join("");
+
+  const refresh = () => {
+    const target = Number(sel.value);
+    const item = trajectories.find(t => t.cycle_index === target) || trajectories[0];
+    meta.textContent = `points=${item.point_count}, len=${item.path_length_m}m, yawJump=${item.yaw_jump_max_deg}, curv=${item.curv_abs_max}`;
+    drawTrajectoryMap(item.cycle_index);
+  };
+  sel.addEventListener("change", refresh);
+  refresh();
+}
+
 drawLine("timerChart", data.timerIntervals, {{
   color: "#2563eb",
   thresholds: [{{value: 80, color: "#f59e0b"}}, {{value: 140, color: "#ef4444"}}]
@@ -726,6 +947,7 @@ drawLine("yawChart", data.yawJump, {{
 drawLine("pathChart", data.pathLength.map((v, i) => v + (data.curvAbs[i] || 0) * 20), {{
   color: "#10b981"
 }});
+initTrajectorySelector();
 
 const tbody = document.querySelector("#anomalyTable tbody");
 data.anomalies.forEach(a => {{
@@ -740,6 +962,28 @@ data.anomalies.forEach(a => {{
 </body>
 </html>
 """
+        replacements = {
+            "__LOG_NAME__": log_name_safe,
+            "__LOG_PATH__": log_path_safe,
+            "__SUMMARY__": summary_safe,
+            "__RISK_CLASS__": risk_class,
+            "__RISK_LEVEL__": risk_level,
+            "__SCORE__": str(score),
+            "__FOCUS__": str(key_metrics.get("risk_breakdown", {}).get("focus", "comprehensive")),
+            "__CYCLE_COUNT__": str(key_metrics.get("cycle_count", 0)),
+            "__CYCLE_WITH_POINTS__": str(key_metrics.get("cycle_with_points_count", 0)),
+            "__PARSED_LINES__": str(key_metrics.get("parsed_line_count", 0)),
+            "__LINE_COUNT__": str(key_metrics.get("line_count", 0)),
+            "__TIMER_JITTER__": str(key_metrics.get("timer_jitter_count", 0)),
+            "__REPLAN_RATIO__": str(key_metrics.get("replan_ratio", 0.0)),
+            "__REPLAN_STREAK__": str(key_metrics.get("longest_replan_streak", 0)),
+            "__HIGH_ANOMALY_COUNT__": str(sum(1 for a in anomalies if a.get("severity") == "high")),
+            "__DATA_JSON__": data_json,
+        }
+        out = html_template
+        for key, value in replacements.items():
+            out = out.replace(key, value)
+        return out
 
     def _finalize_cycle(self, cycle: dict[str, Any]) -> dict[str, Any]:
         points = [cycle["points"][i] for i in sorted(cycle["points"])]
@@ -1182,11 +1426,85 @@ data.anomalies.forEach(a => {{
             else 0.0
         )
 
+        def downsample_points(points: list[dict[str, Any]], max_points: int = 220) -> list[list[float]]:
+            if not points:
+                return []
+            if len(points) <= max_points:
+                return [[round(p["x_mm"] / 1000.0, 3), round(p["y_mm"] / 1000.0, 3)] for p in points]
+            result = []
+            for i in range(max_points):
+                pos = round(i * (len(points) - 1) / (max_points - 1))
+                p = points[int(pos)]
+                result.append([round(p["x_mm"] / 1000.0, 3), round(p["y_mm"] / 1000.0, 3)])
+            return result
+
+        def cycle_alert_score(c: dict[str, Any]) -> int:
+            score_c = 0
+            if c["yaw_jump_max_deg"] > 8.0:
+                score_c += 2
+            if c["curv_abs_max"] > 0.10 or c["curv_delta_max"] > 0.03:
+                score_c += 2
+            if c.get("replan") == 1:
+                score_c += 1
+            if c["path_length_m"] < 2.0:
+                score_c += 1
+            return score_c
+
+        ranked_cycles = sorted(
+            cycle_with_points,
+            key=lambda c: (
+                cycle_alert_score(c),
+                c["curv_abs_max"],
+                c["yaw_jump_max_deg"],
+                c["path_length_m"],
+            ),
+            reverse=True,
+        )
+        selected_cycles: list[dict[str, Any]] = []
+        selected_ids: set[int] = set()
+        for c in ranked_cycles[:10]:
+            cid = int(c["index"])
+            selected_cycles.append(c)
+            selected_ids.add(cid)
+        for c in cycle_with_points[:5]:
+            cid = int(c["index"])
+            if cid in selected_ids:
+                continue
+            selected_cycles.append(c)
+            selected_ids.add(cid)
+            if len(selected_cycles) >= 14:
+                break
+
+        trajectory_preview = []
+        for c in selected_cycles[:14]:
+            points_sorted = [c["points"][i] for i in sorted(c["points"])]
+            alert_score = cycle_alert_score(c)
+            if alert_score >= 3:
+                risk_tag = "high"
+            elif alert_score >= 1:
+                risk_tag = "medium"
+            else:
+                risk_tag = "normal"
+            trajectory_preview.append(
+                {
+                    "cycle_index": c["index"],
+                    "timestamp": c["start_entry"]["timestamp_raw"],
+                    "point_count": c["point_count"],
+                    "path_length_m": round(c["path_length_m"], 3),
+                    "yaw_jump_max_deg": round(c["yaw_jump_max_deg"], 3),
+                    "curv_abs_max": round(c["curv_abs_max"], 5),
+                    "risk_tag": risk_tag,
+                    "alert_score": alert_score,
+                    "points_xy_m": downsample_points(points_sorted),
+                }
+            )
+
         key_metrics = {
             "line_count": len(lines),
             "parsed_line_count": parsed_lines,
             "cycle_count": len(cycles),
             "cycle_with_points_count": len(cycle_with_points),
+            "trajectory_preview_count": len(trajectory_preview),
             "level_counts": dict(level_counts),
             "top_modules": [
                 {"module": name, "count": count}
@@ -1229,6 +1547,7 @@ data.anomalies.forEach(a => {{
             "key_metrics": key_metrics,
             "top_anomalies": anomalies_sorted,
             "parse_warnings": parse_warnings,
+            "trajectory_preview": trajectory_preview,
             "cycle_metrics_preview": [
                 {
                     "cycle_index": c["index"],
@@ -1265,6 +1584,7 @@ data.anomalies.forEach(a => {{
                         timer_intervals_ms=timer_intervals_ms,
                         fork_times=fork_times,
                         cycle_preview=full_report["cycle_metrics_preview"],
+                        trajectory_preview=trajectory_preview,
                     )
                     dashboard_file = report_dir / f"{log_path.name}.analysis.html"
                     dashboard_file.write_text(html, encoding="utf-8")

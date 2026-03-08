@@ -123,7 +123,7 @@ python3 -m mini_nanobot chat -m "请分析这个日志：/Users/starktony/Downlo
 - `key_metrics`（周期、抖动、重规划、轨迹几何指标等）
 - `top_anomalies`（含证据行）
 - `report_path`（JSON 报告）
-- `dashboard_path`（GUI 图表 HTML）
+- `dashboard_path`（GUI 图表 HTML，含 Output Trajectory Map 轨迹可视化）
 
 ## 目录说明
 
