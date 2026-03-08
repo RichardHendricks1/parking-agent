@@ -61,7 +61,7 @@ python3 -m mini_nanobot chat -m "你好，帮我创建 notes.txt 并写入 hello
 python3 -m mini_nanobot clear-session
 ```
 
-## 使用本地模型（Ollama）
+## 使用本地模型（Ollama / llama.cpp）
 
 如果你想让 mini_nanobot 调本地小模型，可以一键切换：
 
@@ -83,6 +83,44 @@ python3 -m mini_nanobot chat -m "你好，用本地模型回复"
 说明：
 - 当 `api_base` 是本地地址（localhost/127.0.0.1）时，可以不依赖远端 API key。
 - 如果你使用的不是 Ollama，也可以用 `--api-base` 指向任意本地 OpenAI 兼容服务。
+
+如果你已经有 `GGUF` 模型，也可以直接一键拉起本地 `llama.cpp` 服务（会自动写入 mini_nanobot 配置）：
+
+```bash
+python3 -m mini_nanobot start-local-server \
+  --model-path /Users/starktony/Downloads/nanobot-main/models/gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf \
+  --host 127.0.0.1 \
+  --port 18080
+```
+
+查看运行状态：
+
+```bash
+python3 -m mini_nanobot local-server-status
+```
+
+停止服务：
+
+```bash
+python3 -m mini_nanobot stop-local-server
+```
+
+可选参数（`start-local-server`）：
+- `--ctx-size`：上下文窗口（默认 `2048`）
+- `--n-gpu-layers`：下沉到 GPU 的层数（默认 `0`）
+- `--binary`：`llama-server` 可执行文件名或绝对路径
+- `--no-configure-agent`：只启动服务，不改 `~/.mini_nanobot/config.json`
+
+切回远端 API（一键）：
+
+```bash
+python3 -m mini_nanobot use-remote \
+  --api-base https://open.bigmodel.cn/api/paas/v4 \
+  --model glm-4-flash \
+  --api-key YOUR_API_KEY
+```
+
+如果不想覆盖已保存的 key，可省略 `--api-key`，会保留当前配置里的 key。
 
 ## 泊车分析示例
 

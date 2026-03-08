@@ -543,215 +543,438 @@ class AnalyzePlanningLogTool(Tool):
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Planning Log Dashboard - __LOG_NAME__</title>
   <style>
-    :root {{
-      --bg: #eef3fb;
-      --card: #ffffff;
-      --text: #10233f;
-      --muted: #4f6481;
-      --line: #d2deef;
-      --accent: #0f6bd9;
-      --ok: #0f9d6a;
-      --warn: #b7791f;
-      --bad: #c53030;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
+    @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap");
+    :root {
+      --ink: #0b1b2e;
+      --text: #122844;
+      --muted: #4f6380;
+      --sky: #d7e9ff;
+      --sea: #0f7dcf;
+      --teal: #0c9c86;
+      --sand: #f7c57f;
+      --card: rgba(255, 255, 255, 0.86);
+      --line: #d3dfef;
+      --high: #d43f3a;
+      --mid: #d48806;
+      --low: #16845f;
+      --shadow: 0 18px 40px rgba(17, 45, 89, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
       margin: 0;
-      background:
-        radial-gradient(circle at 8% 10%, #dbeafe 0%, rgba(219, 234, 254, 0) 38%),
-        radial-gradient(circle at 90% 0%, #d1fae5 0%, rgba(209, 250, 229, 0) 30%),
-        linear-gradient(160deg, #edf3fb 0%, #f8fbff 100%);
       color: var(--text);
-      font-family: "Avenir Next", "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
-    }}
-    .wrap {{ max-width: 1320px; margin: 0 auto; padding: 24px 20px 30px; }}
-    .hero {{
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 20px 22px;
-      border-radius: 18px;
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
       background:
-        linear-gradient(130deg, rgba(15,107,217,0.10), rgba(255,255,255,0.88)),
-        linear-gradient(45deg, rgba(16,35,63,0.05), rgba(16,35,63,0));
-      border: 1px solid #d8e5f7;
-      box-shadow: 0 14px 36px rgba(20, 56, 110, 0.12);
-      margin-bottom: 14px;
-    }}
-    .hero h1 {{ margin: 0; font-size: 30px; letter-spacing: 0.2px; }}
-    .hero .meta {{ margin-top: 6px; font-size: 13px; color: var(--muted); word-break: break-all; }}
-    .hero .summary {{
-      margin-top: 12px;
-      color: #0f2b4f;
-      background: rgba(255,255,255,0.78);
-      border: 1px solid #dbe7f8;
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-size: 14px;
-      line-height: 1.5;
-      max-width: 860px;
-    }}
-    .risk-chip {{
-      align-self: flex-start;
-      padding: 10px 14px;
+        radial-gradient(circle at 15% 10%, rgba(215, 233, 255, 0.72), rgba(215, 233, 255, 0) 35%),
+        radial-gradient(circle at 92% 5%, rgba(215, 255, 245, 0.72), rgba(215, 255, 245, 0) 32%),
+        radial-gradient(circle at 80% 80%, rgba(255, 232, 205, 0.62), rgba(255, 232, 205, 0) 32%),
+        linear-gradient(165deg, #f2f7ff 0%, #f8fbff 48%, #f4fbfa 100%);
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .blob {
+      position: fixed;
       border-radius: 999px;
-      font-size: 13px;
+      filter: blur(30px);
+      opacity: 0.42;
+      pointer-events: none;
+      z-index: 0;
+      animation: floaty 12s ease-in-out infinite;
+    }
+    .blob.a { width: 270px; height: 270px; background: #9ec9ff; top: -80px; right: -40px; }
+    .blob.b { width: 220px; height: 220px; background: #9de7dd; left: -70px; top: 30vh; animation-delay: 1.5s; }
+    .blob.c { width: 180px; height: 180px; background: #ffd8a8; right: 16%; bottom: -40px; animation-delay: 3s; }
+    .wrap {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 26px 22px 34px;
+      position: relative;
+      z-index: 1;
+    }
+    .card-shell {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.78);
+      box-shadow: var(--shadow);
+      border-radius: 22px;
+      backdrop-filter: blur(5px);
+      animation: rise 0.55s ease both;
+      animation-delay: calc(var(--d, 0) * 70ms);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      padding: 24px 24px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      background:
+        linear-gradient(120deg, rgba(15, 125, 207, 0.18), rgba(255, 255, 255, 0.1) 55%, rgba(12, 156, 134, 0.13));
+      z-index: -1;
+    }
+    .eyebrow {
+      margin: 0;
+      font-size: 11px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: #1d5e9c;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 7px 0 0;
+      font-family: "Sora", "PingFang SC", sans-serif;
+      font-size: clamp(26px, 4vw, 36px);
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .meta {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #5d6f87;
+      word-break: break-all;
+    }
+    .mono { font-family: "JetBrains Mono", monospace; }
+    .summary {
+      margin: 14px 0 0;
+      max-width: 900px;
+      padding: 11px 12px;
+      border: 1px solid #d6e7fb;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.65);
+      line-height: 1.56;
+      font-size: 14px;
+      color: #143257;
+    }
+    .hero-side {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      justify-content: flex-start;
+    }
+    .risk-chip {
+      padding: 10px 16px;
+      border-radius: 999px;
       color: #fff;
       font-weight: 700;
-      letter-spacing: 0.3px;
-      box-shadow: 0 8px 18px rgba(17, 40, 77, 0.16);
-    }}
-    .risk-high {{ background: linear-gradient(135deg, #c53030, #ef4444); }}
-    .risk-medium {{ background: linear-gradient(135deg, #b7791f, #f59e0b); }}
-    .risk-low {{ background: linear-gradient(135deg, #0f9d6a, #10b981); }}
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      box-shadow: 0 10px 22px rgba(11, 24, 45, 0.16);
+    }
+    .score-box {
+      min-width: 128px;
+      text-align: center;
+      border-radius: 14px;
+      border: 1px solid #d9e7f8;
+      background: rgba(255, 255, 255, 0.84);
+      padding: 10px 12px;
+    }
+    .score-box .v {
+      font-family: "Sora", sans-serif;
+      font-size: 27px;
+      line-height: 1.1;
+      color: #11335a;
+      font-weight: 700;
+    }
+    .score-box .k {
+      margin-top: 4px;
+      color: #60738d;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .risk-high { background: linear-gradient(135deg, #c7362f, #e35149); }
+    .risk-medium { background: linear-gradient(135deg, #cf7a05, #ec9b17); }
+    .risk-low { background: linear-gradient(135deg, #0e8a64, #14aa7c); }
 
-    .grid {{ display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-top: 14px; }}
-    .card {{
-      background: var(--card);
-      border: 1px solid #dce7f6;
-      border-radius: 16px;
-      box-shadow: 0 10px 28px rgba(16, 44, 89, 0.08);
-      padding: 14px 15px;
-    }}
-    .kpi {{ grid-column: span 2; min-height: 108px; }}
-    .kpi.accent {{
-      background: linear-gradient(135deg, #0f6bd9 0%, #2c84ea 70%);
+    .kpi-grid {
+      margin-top: 15px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .kpi {
+      grid-column: span 2;
+      padding: 14px 14px 12px;
+      min-height: 112px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi.primary {
+      background: linear-gradient(145deg, #0f7dcf, #1a8adf 56%, #37a0f0);
       color: #fff;
-      border-color: transparent;
-    }}
-    .kpi .label {{ color: var(--muted); font-size: 12px; }}
-    .kpi.accent .label {{ color: rgba(255,255,255,0.82); }}
-    .kpi .val {{ font-size: 26px; font-weight: 700; margin-top: 6px; }}
-    .kpi .sub {{ margin-top: 6px; font-size: 11px; color: #6b7c96; }}
-    .kpi.accent .sub {{ color: rgba(255,255,255,0.80); }}
-    .wide {{ grid-column: span 6; min-height: 332px; }}
-    .trajectory-card {{ grid-column: span 12; }}
-    .full {{ grid-column: span 12; }}
-    h3 {{ margin: 4px 0 10px 0; font-size: 16px; letter-spacing: 0.1px; }}
-    .hint {{ margin-top: -4px; margin-bottom: 8px; color: #6b7c96; font-size: 12px; }}
-    canvas {{ width: 100%; height: 250px; background: #fbfdff; border-radius: 10px; border: 1px solid #e7eef9; }}
-    #trajectoryCanvas {{ height: 420px; background: linear-gradient(180deg, #fbfdff 0%, #f5f9ff 100%); }}
+    }
+    .kpi.primary .label, .kpi.primary .sub { color: rgba(255, 255, 255, 0.84); }
+    .kpi .label {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #62748d;
+      font-weight: 600;
+    }
+    .kpi .val {
+      margin-top: 8px;
+      font-family: "Sora", sans-serif;
+      font-weight: 700;
+      font-size: 30px;
+      line-height: 1;
+      color: #112f53;
+    }
+    .kpi .sub {
+      margin-top: 9px;
+      font-size: 12px;
+      color: #5f738e;
+    }
+    .kpi.primary::before {
+      content: "";
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.17);
+      top: -56px;
+      right: -42px;
+    }
 
-    .toolbar {{
+    .chart-grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .card {
+      grid-column: span 6;
+      padding: 14px 15px 15px;
+      min-height: 346px;
+    }
+    .card h3 {
+      margin: 0;
+      font-family: "Sora", sans-serif;
+      font-size: 17px;
+      color: #102a48;
+      letter-spacing: 0.01em;
+    }
+    .hint {
+      margin: 5px 0 11px;
+      color: #60748f;
+      font-size: 12px;
+    }
+    canvas {
+      width: 100%;
+      height: 252px;
+      border-radius: 14px;
+      border: 1px solid #dde8f7;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 251, 255, 0.9)),
+        repeating-linear-gradient(45deg, rgba(230, 240, 252, 0.45) 0px, rgba(230, 240, 252, 0.45) 1px, rgba(255, 255, 255, 0) 1px, rgba(255, 255, 255, 0) 16px);
+    }
+    .trajectory-card {
+      margin-top: 14px;
+      padding: 16px 16px 15px;
+    }
+    #trajectoryCanvas {
+      height: 430px;
+      background:
+        linear-gradient(180deg, #fdfefe 0%, #f2f9ff 100%);
+    }
+
+    .toolbar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 10px;
-    }}
-    .toolbar .left {{
+    }
+    .toolbar .left {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-    }}
-    select {{
-      border: 1px solid #d0def2;
-      border-radius: 10px;
-      padding: 6px 10px;
-      background: #fff;
-      color: #123054;
+      color: #2a4465;
+      font-size: 13px;
       font-weight: 500;
-    }}
-    .legend {{
+    }
+    #trajectoryMeta {
+      margin: 0;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #edf5ff;
+      border: 1px solid #d7e8fb;
+      color: #355375;
+    }
+    select {
+      border: 1px solid #ccdff6;
+      border-radius: 11px;
+      padding: 7px 11px;
+      background: #fff;
+      color: #15375c;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .legend {
       display: flex;
       align-items: center;
       gap: 12px;
-      color: #5a6e8d;
+      color: #5c7391;
       font-size: 12px;
-    }}
-    .legend .dot {{
+      flex-wrap: wrap;
+    }
+    .legend .dot {
       width: 9px;
       height: 9px;
-      border-radius: 99px;
+      border-radius: 999px;
       display: inline-block;
       margin-right: 5px;
-    }}
+    }
 
-    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-    th, td {{ border-bottom: 1px solid #edf2f7; text-align: left; padding: 8px; vertical-align: top; }}
-    th {{ color: var(--muted); font-weight: 650; background: #f8fbff; }}
-    .sev-high {{ color: var(--bad); font-weight: 700; }}
-    .sev-medium {{ color: var(--warn); font-weight: 700; }}
-    .sev-low {{ color: var(--ok); font-weight: 700; }}
+    .full {
+      margin-top: 14px;
+      padding: 14px 15px 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #ebf1fa;
+      text-align: left;
+      padding: 10px 9px;
+      vertical-align: top;
+    }
+    th {
+      background: #f2f7ff;
+      color: #4f6887;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    tr:hover td { background: #f8fbff; }
+    .sev-high { color: var(--high); font-weight: 700; }
+    .sev-medium { color: var(--mid); font-weight: 700; }
+    .sev-low { color: var(--low); font-weight: 700; }
 
-    @media (max-width: 980px) {{
-      .hero {{ flex-direction: column; }}
-      .kpi {{ grid-column: span 6; }}
-      .kpi.accent {{ grid-column: span 12; }}
-      .kpi {{ grid-column: span 6; }}
-      .wide {{ grid-column: span 12; }}
-      #trajectoryCanvas {{ height: 320px; }}
-    }}
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(14px); }
+    }
+
+    @media (max-width: 1120px) {
+      .kpi { grid-column: span 4; }
+      .kpi.primary { grid-column: span 12; }
+    }
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .hero-side { align-items: flex-start; }
+      .kpi { grid-column: span 6; }
+      .card { grid-column: span 12; }
+      #trajectoryCanvas { height: 330px; }
+    }
+    @media (max-width: 620px) {
+      .wrap { padding: 16px 12px 24px; }
+      .kpi-grid, .chart-grid { gap: 10px; }
+      .kpi { grid-column: span 12; min-height: 100px; }
+      canvas { height: 220px; }
+      #trajectoryCanvas { height: 280px; }
+      .summary { font-size: 13px; }
+      .legend { gap: 9px; }
+    }
   </style>
 </head>
 <body>
+  <div class="blob a"></div>
+  <div class="blob b"></div>
+  <div class="blob c"></div>
   <div class="wrap">
-    <div class="hero">
+    <section class="hero card-shell" style="--d:0">
       <div>
+        <p class="eyebrow">J6B Planning Intelligence</p>
         <h1>Planning Log Dashboard</h1>
-        <div class="meta">__LOG_PATH__</div>
-        <div class="summary">__SUMMARY__</div>
+        <div class="meta mono">__LOG_PATH__</div>
+        <p class="summary">__SUMMARY__</p>
       </div>
-      <div class="risk-chip __RISK_CLASS__">Risk: __RISK_LEVEL__ / Score: __SCORE__</div>
-    </div>
+      <div class="hero-side">
+        <div class="risk-chip __RISK_CLASS__">Risk: __RISK_LEVEL__</div>
+        <div class="score-box">
+          <div class="v">__SCORE__</div>
+          <div class="k">Composite Score</div>
+        </div>
+      </div>
+    </section>
 
-    <div class="grid">
-      <div class="card kpi accent"><div class="label">Overall Risk Score</div><div class="val">__SCORE__</div><div class="sub">Focus: __FOCUS__</div></div>
-      <div class="card kpi"><div class="label">Cycle Count</div><div class="val">__CYCLE_COUNT__</div><div class="sub">with points: __CYCLE_WITH_POINTS__</div></div>
-      <div class="card kpi"><div class="label">Parsed Lines</div><div class="val">__PARSED_LINES__</div><div class="sub">total: __LINE_COUNT__</div></div>
-      <div class="card kpi"><div class="label">Timer Jitter</div><div class="val">__TIMER_JITTER__</div><div class="sub">out of [80, 140] ms</div></div>
-      <div class="card kpi"><div class="label">Replan Ratio</div><div class="val">__REPLAN_RATIO__</div><div class="sub">longest streak: __REPLAN_STREAK__</div></div>
-      <div class="card kpi"><div class="label">Top Severity</div><div class="val">__HIGH_ANOMALY_COUNT__</div><div class="sub">high anomalies</div></div>
+    <section class="kpi-grid">
+      <div class="kpi card-shell primary" style="--d:1"><div class="label">Overall Risk Score</div><div class="val">__SCORE__</div><div class="sub">Focus: __FOCUS__</div></div>
+      <div class="kpi card-shell" style="--d:2"><div class="label">Cycle Count</div><div class="val">__CYCLE_COUNT__</div><div class="sub">with points: __CYCLE_WITH_POINTS__</div></div>
+      <div class="kpi card-shell" style="--d:3"><div class="label">Parsed Lines</div><div class="val">__PARSED_LINES__</div><div class="sub">total: __LINE_COUNT__</div></div>
+      <div class="kpi card-shell" style="--d:4"><div class="label">Timer Jitter</div><div class="val">__TIMER_JITTER__</div><div class="sub">out of [80, 140] ms</div></div>
+      <div class="kpi card-shell" style="--d:5"><div class="label">Replan Ratio</div><div class="val">__REPLAN_RATIO__</div><div class="sub">longest streak: __REPLAN_STREAK__</div></div>
+      <div class="kpi card-shell" style="--d:6"><div class="label">Top Severity</div><div class="val">__HIGH_ANOMALY_COUNT__</div><div class="sub">high anomalies</div></div>
+    </section>
 
-      <div class="card wide">
+    <section class="chart-grid">
+      <div class="card card-shell" style="--d:7">
         <h3>Timer Interval (ms)</h3>
-        <div class="hint">Planner loop interval trend with threshold lines.</div>
+        <div class="hint">Planner loop interval trend with guard rails at 80 / 140 ms.</div>
         <canvas id="timerChart"></canvas>
       </div>
-      <div class="card wide">
+      <div class="card card-shell" style="--d:8">
         <h3>Fork Star Used Time (ms)</h3>
-        <div class="hint">Runtime cost distribution by cycle.</div>
+        <div class="hint">Runtime load profile across planning cycles.</div>
         <canvas id="forkChart"></canvas>
       </div>
-
-      <div class="card wide">
+      <div class="card card-shell" style="--d:9">
         <h3>Yaw Jump Max per Cycle (deg)</h3>
-        <div class="hint">Steering continuity risk view (threshold at 8 deg).</div>
+        <div class="hint">Steering continuity risk view with 8 deg threshold.</div>
         <canvas id="yawChart"></canvas>
       </div>
-      <div class="card wide">
-        <h3>Path Length / Curvature per Cycle</h3>
-        <div class="hint">Composite trend for trajectory scale and curvature intensity.</div>
+      <div class="card card-shell" style="--d:10">
+        <h3>Path Length / Curvature Blend</h3>
+        <div class="hint">Composite trend for route scale and curvature intensity.</div>
         <canvas id="pathChart"></canvas>
       </div>
+    </section>
 
-      <div class="card trajectory-card">
-        <h3>Output Trajectory Map</h3>
-        <div class="toolbar">
-          <div class="left">
-            <label for="trajectorySelect">Cycle:</label>
-            <select id="trajectorySelect"></select>
-            <span id="trajectoryMeta" class="hint"></span>
-          </div>
-          <div class="legend">
-            <span><span class="dot" style="background:#0f6bd9;"></span>selected</span>
-            <span><span class="dot" style="background:#ef4444;"></span>high</span>
-            <span><span class="dot" style="background:#f59e0b;"></span>medium</span>
-            <span><span class="dot" style="background:#94a3b8;"></span>normal</span>
-          </div>
+    <section class="trajectory-card card-shell" style="--d:11">
+      <h3>Output Trajectory Map</h3>
+      <div class="toolbar">
+        <div class="left">
+          <label for="trajectorySelect">Cycle:</label>
+          <select id="trajectorySelect"></select>
+          <span id="trajectoryMeta"></span>
         </div>
-        <canvas id="trajectoryCanvas"></canvas>
+        <div class="legend">
+          <span><span class="dot" style="background:#1185ff;"></span>selected</span>
+          <span><span class="dot" style="background:#e35149;"></span>high</span>
+          <span><span class="dot" style="background:#ec9b17;"></span>medium</span>
+          <span><span class="dot" style="background:#92a7c0;"></span>normal</span>
+        </div>
       </div>
+      <canvas id="trajectoryCanvas"></canvas>
+    </section>
 
-      <div class="card full">
-        <h3>Top Anomalies</h3>
-        <table id="anomalyTable">
-          <thead><tr><th>Rule</th><th>Severity</th><th>Count</th><th>Detail</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
+    <section class="full card-shell" style="--d:12">
+      <h3>Top Anomalies</h3>
+      <table id="anomalyTable">
+        <thead><tr><th>Rule</th><th>Severity</th><th>Count</th><th>Detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
   </div>
 <script>
 const data = __DATA_JSON__;
@@ -763,153 +986,237 @@ function yScale(min, max, h, pad) {
   };
 }
 
-function drawLine(canvasId, values, opts) {{
-  const c = document.getElementById(canvasId);
-  const ctx = c.getContext("2d");
-  c.width = c.clientWidth * 2;
-  c.height = c.clientHeight * 2;
-  ctx.scale(2, 2);
-  const vw = c.clientWidth, vh = c.clientHeight;
+function setupHiDPI(canvas) {
+  const ctx = canvas.getContext("2d");
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  const vw = canvas.clientWidth;
+  const vh = canvas.clientHeight;
+  canvas.width = Math.max(1, Math.floor(vw * ratio));
+  canvas.height = Math.max(1, Math.floor(vh * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, vw, vh);
-  if (!values || !values.length) {{
-    ctx.fillStyle = "#64748b"; ctx.fillText("No data", 12, 24); return;
-  }}
+  return { ctx, vw, vh };
+}
+
+function drawNoData(ctx, text) {
+  ctx.fillStyle = "#6f8097";
+  ctx.font = "500 13px 'IBM Plex Sans'";
+  ctx.fillText(text, 14, 24);
+}
+
+function drawLine(canvasId, values, opts) {
+  const c = document.getElementById(canvasId);
+  const { ctx, vw, vh } = setupHiDPI(c);
+  if (!values || !values.length) {
+    drawNoData(ctx, "No data");
+    return;
+  }
   const min = Math.min(...values);
   const max = Math.max(...values);
   const pad = 28;
   const xStep = values.length > 1 ? (vw - pad * 2) / (values.length - 1) : 0;
   const yMap = yScale(min, max, vh, pad);
+  const xAt = (i) => pad + i * xStep;
 
-  ctx.strokeStyle = "#d9e2f0"; ctx.lineWidth = 1;
-  for (let i = 0; i < 5; i++) {{
+  ctx.strokeStyle = "#dee7f4";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
     const y = pad + (i * (vh - pad * 2) / 4);
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(vw - pad, y); ctx.stroke();
-  }}
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(vw - pad, y);
+    ctx.stroke();
+  }
 
-  ctx.strokeStyle = opts.color || "#1f6feb";
-  ctx.lineWidth = 2;
+  const area = ctx.createLinearGradient(0, pad, 0, vh - pad);
+  area.addColorStop(0, `${opts.color}44`);
+  area.addColorStop(1, `${opts.color}06`);
   ctx.beginPath();
-  values.forEach((v, i) => {{
-    const x = pad + i * xStep;
+  values.forEach((v, i) => {
+    const x = xAt(i);
     const y = yMap(v);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }});
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      const px = xAt(i - 1);
+      const py = yMap(values[i - 1]);
+      const mx = (px + x) / 2;
+      ctx.quadraticCurveTo(px, py, mx, (py + y) / 2);
+    }
+  });
+  const lx = xAt(values.length - 1);
+  const ly = yMap(values[values.length - 1]);
+  ctx.lineTo(lx, ly);
+  ctx.lineTo(vw - pad, vh - pad);
+  ctx.lineTo(pad, vh - pad);
+  ctx.closePath();
+  ctx.fillStyle = area;
+  ctx.fill();
+
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = xAt(i);
+    const y = yMap(v);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      const px = xAt(i - 1);
+      const py = yMap(values[i - 1]);
+      const mx = (px + x) / 2;
+      ctx.quadraticCurveTo(px, py, mx, (py + y) / 2);
+    }
+  });
+  ctx.strokeStyle = opts.color;
+  ctx.lineWidth = 2.2;
   ctx.stroke();
 
-  if (opts.thresholds) {{
-    opts.thresholds.forEach(t => {{
+  if (opts.thresholds) {
+    ctx.font = "11px 'JetBrains Mono'";
+    opts.thresholds.forEach((t) => {
       const y = yMap(t.value);
       ctx.strokeStyle = t.color;
-      ctx.setLineDash([5,4]);
-      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(vw-pad, y); ctx.stroke();
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(vw - pad, y);
+      ctx.stroke();
       ctx.setLineDash([]);
-    }});
-  }}
-}}
+      ctx.fillStyle = t.color;
+      ctx.fillText(String(t.value), vw - pad - 34, y - 5);
+    });
+  }
+}
 
-function drawBars(canvasId, values, color) {{
+function drawBars(canvasId, values, color) {
   const c = document.getElementById(canvasId);
-  const ctx = c.getContext("2d");
-  c.width = c.clientWidth * 2;
-  c.height = c.clientHeight * 2;
-  ctx.scale(2, 2);
-  const vw = c.clientWidth, vh = c.clientHeight;
-  ctx.clearRect(0, 0, vw, vh);
-  if (!values || !values.length) {{
-    ctx.fillStyle = "#64748b"; ctx.fillText("No data", 12, 24); return;
-  }}
+  const { ctx, vw, vh } = setupHiDPI(c);
+  if (!values || !values.length) {
+    drawNoData(ctx, "No data");
+    return;
+  }
   const pad = 28;
   const max = Math.max(...values, 1);
-  const barW = Math.max(1, (vw - pad * 2) / values.length - 1);
-  values.forEach((v, i) => {{
-    const x = pad + i * (barW + 1);
-    const hVal = ((v / max) * (vh - pad * 2));
+  const barW = Math.max(2, (vw - pad * 2) / values.length - 2);
+  values.forEach((v, i) => {
+    const x = pad + i * (barW + 2);
+    const hVal = (v / max) * (vh - pad * 2);
     const y = vh - pad - hVal;
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, barW, hVal);
-  }});
-}}
+    const g = ctx.createLinearGradient(0, y, 0, vh - pad);
+    g.addColorStop(0, `${color}d8`);
+    g.addColorStop(1, `${color}58`);
+    const r = Math.min(5, barW / 2);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, vh - pad);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.lineTo(x + barW - r, y);
+    ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+    ctx.lineTo(x + barW, vh - pad);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
 
 function trajectoryColor(tag, selected) {
-  if (selected) return "#0f6bd9";
-  if (tag === "high") return "#ef4444";
-  if (tag === "medium") return "#f59e0b";
-  return "#94a3b8";
+  if (selected) return "#1185ff";
+  if (tag === "high") return "#e35149";
+  if (tag === "medium") return "#ec9b17";
+  return "#92a7c0";
 }
 
 function drawTrajectoryMap(selectedCycleIndex) {
   const c = document.getElementById("trajectoryCanvas");
-  const ctx = c.getContext("2d");
-  c.width = c.clientWidth * 2;
-  c.height = c.clientHeight * 2;
-  ctx.scale(2, 2);
-  const vw = c.clientWidth, vh = c.clientHeight;
-  ctx.clearRect(0, 0, vw, vh);
+  const { ctx, vw, vh } = setupHiDPI(c);
   const trajectories = data.trajectoryPreview || [];
   if (!trajectories.length) {
-    ctx.fillStyle = "#64748b";
-    ctx.fillText("No trajectory preview data", 16, 24);
+    drawNoData(ctx, "No trajectory preview data");
     return;
   }
 
   const allPts = [];
-  trajectories.forEach(t => (t.points_xy_m || []).forEach(p => allPts.push(p)));
+  trajectories.forEach((t) => (t.points_xy_m || []).forEach((p) => allPts.push(p)));
   if (!allPts.length) {
-    ctx.fillStyle = "#64748b";
-    ctx.fillText("No trajectory points", 16, 24);
+    drawNoData(ctx, "No trajectory points");
     return;
   }
 
-  const xs = allPts.map(p => p[0]);
-  const ys = allPts.map(p => p[1]);
+  const xs = allPts.map((p) => p[0]);
+  const ys = allPts.map((p) => p[1]);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const pad = 34;
+  const spanX = Math.max(maxX - minX, 1e-6);
+  const spanY = Math.max(maxY - minY, 1e-6);
+  const innerW = Math.max(1, vw - pad * 2);
+  const innerH = Math.max(1, vh - pad * 2);
+  const metersToPx = Math.min(innerW / spanX, innerH / spanY);
+  const drawW = spanX * metersToPx;
+  const drawH = spanY * metersToPx;
+  const offsetX = pad + (innerW - drawW) / 2;
+  const offsetY = pad + (innerH - drawH) / 2;
 
-  const scaleX = (x) => {
-    if (maxX === minX) return vw / 2;
-    return pad + ((x - minX) / (maxX - minX)) * (vw - pad * 2);
-  };
-  const scaleY = (y) => {
-    if (maxY === minY) return vh / 2;
-    return vh - pad - ((y - minY) / (maxY - minY)) * (vh - pad * 2);
-  };
+  const scaleX = (x) => offsetX + (x - minX) * metersToPx;
+  const scaleY = (y) => vh - (offsetY + (y - minY) * metersToPx);
+  const gridLeft = offsetX;
+  const gridRight = offsetX + drawW;
+  const gridBottom = vh - offsetY;
+  const gridTop = gridBottom - drawH;
 
-  ctx.strokeStyle = "#deebfb";
+  ctx.strokeStyle = "#dbe8f8";
   ctx.lineWidth = 1;
   for (let i = 0; i < 6; i++) {
-    const x = pad + (i * (vw - pad * 2) / 5);
-    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, vh - pad); ctx.stroke();
+    const x = gridLeft + (i * (gridRight - gridLeft) / 5);
+    ctx.beginPath();
+    ctx.moveTo(x, gridTop);
+    ctx.lineTo(x, gridBottom);
+    ctx.stroke();
   }
   for (let i = 0; i < 6; i++) {
-    const y = pad + (i * (vh - pad * 2) / 5);
-    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(vw - pad, y); ctx.stroke();
+    const y = gridTop + (i * (gridBottom - gridTop) / 5);
+    ctx.beginPath();
+    ctx.moveTo(gridLeft, y);
+    ctx.lineTo(gridRight, y);
+    ctx.stroke();
   }
 
-  trajectories.forEach(t => {
+  trajectories.forEach((t) => {
     const pts = t.points_xy_m || [];
     if (pts.length < 2) return;
     const selected = t.cycle_index === selectedCycleIndex;
-    ctx.lineWidth = selected ? 2.8 : 1.2;
-    ctx.strokeStyle = trajectoryColor(t.risk_tag, selected);
-    ctx.globalAlpha = selected ? 1.0 : 0.35;
+    const color = trajectoryColor(t.risk_tag, selected);
+    ctx.lineWidth = selected ? 3 : 1.3;
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = selected ? 1 : 0.32;
+    if (selected) {
+      ctx.shadowColor = `${color}88`;
+      ctx.shadowBlur = 9;
+    } else {
+      ctx.shadowBlur = 0;
+    }
     ctx.beginPath();
     pts.forEach((p, i) => {
       const x = scaleX(p[0]);
       const y = scaleY(p[1]);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
     ctx.stroke();
+    ctx.shadowBlur = 0;
     if (selected) {
       const first = pts[0], last = pts[pts.length - 1];
-      ctx.globalAlpha = 1.0;
-      ctx.fillStyle = "#16a34a";
-      ctx.beginPath(); ctx.arc(scaleX(first[0]), scaleY(first[1]), 3.8, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#dc2626";
-      ctx.beginPath(); ctx.arc(scaleX(last[0]), scaleY(last[1]), 3.8, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#15a26e";
+      ctx.beginPath();
+      ctx.arc(scaleX(first[0]), scaleY(first[1]), 4.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d43f3a";
+      ctx.beginPath();
+      ctx.arc(scaleX(last[0]), scaleY(last[1]), 4.1, 0, Math.PI * 2);
+      ctx.fill();
     }
   });
-  ctx.globalAlpha = 1.0;
+  ctx.globalAlpha = 1;
 }
 
 function initTrajectorySelector() {
@@ -921,13 +1228,13 @@ function initTrajectorySelector() {
     drawTrajectoryMap(-1);
     return;
   }
-  sel.innerHTML = trajectories.map((t, i) =>
-    `<option value="${t.cycle_index}" ${i === 0 ? "selected" : ""}>Cycle ${t.cycle_index} (${t.risk_tag})</option>`
-  ).join("");
+  sel.innerHTML = trajectories
+    .map((t, i) => `<option value="${t.cycle_index}" ${i === 0 ? "selected" : ""}>Cycle ${t.cycle_index} (${t.risk_tag})</option>`)
+    .join("");
 
   const refresh = () => {
     const target = Number(sel.value);
-    const item = trajectories.find(t => t.cycle_index === target) || trajectories[0];
+    const item = trajectories.find((t) => t.cycle_index === target) || trajectories[0];
     meta.textContent = `points=${item.point_count}, len=${item.path_length_m}m, yawJump=${item.yaw_jump_max_deg}, curv=${item.curv_abs_max}`;
     drawTrajectoryMap(item.cycle_index);
   };
@@ -935,29 +1242,38 @@ function initTrajectorySelector() {
   refresh();
 }
 
-drawLine("timerChart", data.timerIntervals, {{
-  color: "#2563eb",
-  thresholds: [{{value: 80, color: "#f59e0b"}}, {{value: 140, color: "#ef4444"}}]
-}});
-drawBars("forkChart", data.forkTimes, "#0ea5e9");
-drawLine("yawChart", data.yawJump, {{
-  color: "#f97316",
-  thresholds: [{{value: 8, color: "#ef4444"}}]
-}});
-drawLine("pathChart", data.pathLength.map((v, i) => v + (data.curvAbs[i] || 0) * 20), {{
-  color: "#10b981"
-}});
+function renderCharts() {
+  drawLine("timerChart", data.timerIntervals, {
+    color: "#1976d2",
+    thresholds: [{ value: 80, color: "#ec9b17" }, { value: 140, color: "#e35149" }],
+  });
+  drawBars("forkChart", data.forkTimes, "#0ea5a4");
+  drawLine("yawChart", data.yawJump, {
+    color: "#de7f10",
+    thresholds: [{ value: 8, color: "#d43f3a" }],
+  });
+  drawLine("pathChart", data.pathLength.map((v, i) => v + (data.curvAbs[i] || 0) * 20), {
+    color: "#14866a",
+  });
+}
+
+renderCharts();
 initTrajectorySelector();
+window.addEventListener("resize", () => {
+  renderCharts();
+  const sel = document.getElementById("trajectorySelect");
+  drawTrajectoryMap(Number(sel && sel.value ? sel.value : -1));
+});
 
 const tbody = document.querySelector("#anomalyTable tbody");
-data.anomalies.forEach(a => {{
+data.anomalies.forEach((a) => {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${{a.rule || ""}}</td>
-                  <td class="sev-${{a.severity || "low"}}">${{a.severity || ""}}</td>
-                  <td>${{a.count ?? ""}}</td>
-                  <td>${{a.detail || ""}}</td>`;
+  tr.innerHTML = `<td>${a.rule || ""}</td>
+                  <td class="sev-${a.severity || "low"}">${a.severity || ""}</td>
+                  <td>${a.count ?? ""}</td>
+                  <td>${a.detail || ""}</td>`;
   tbody.appendChild(tr);
-}});
+});
 </script>
 </body>
 </html>
