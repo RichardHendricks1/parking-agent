@@ -115,6 +115,32 @@ def test_stop_local_server_clears_stale_state(tmp_path, monkeypatch):
     assert not state_path.exists()
 
 
+def test_stop_local_server_keeps_state_when_process_still_running(tmp_path, monkeypatch):
+    home_dir = tmp_path / "home"
+    state_path = home_dir / "run" / "local_server.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 2468,
+                "host": "127.0.0.1",
+                "port": 18080,
+                "model_name": "tiny.gguf",
+                "log_path": "/tmp/llama.log",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli, "data_dir", lambda: home_dir)
+    monkeypatch.setattr(cli, "_is_pid_running", lambda pid: True)
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: None)
+
+    rc = cli.cmd_stop_local_server(wait_timeout_s=0.0)
+    assert rc == 1
+    assert state_path.exists()
+
+
 def test_local_server_status_returns_success_when_healthy(tmp_path, monkeypatch, capsys):
     home_dir = tmp_path / "home"
     state_path = home_dir / "run" / "local_server.json"

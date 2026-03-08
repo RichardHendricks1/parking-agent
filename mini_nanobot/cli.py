@@ -345,14 +345,14 @@ def cmd_stop_local_server(wait_timeout_s: float) -> int:
         time.sleep(0.2)
 
     still_running = _is_pid_running(pid)
+    if still_running:
+        print(f"Error: failed to stop local server pid={pid}.")
+        print("State file kept for follow-up stop/status checks.")
+        return 1
     try:
         state_path.unlink()
     except OSError:
         pass
-
-    if still_running:
-        print(f"Error: failed to stop local server pid={pid}.")
-        return 1
     print(f"Stopped local server (pid={pid}).")
     return 0
 
