@@ -21,3 +21,4 @@ poetry.lock
 .pytest_cache/
 botpy.log
 models/gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+parking-bot/.tmp_no_env_check/
