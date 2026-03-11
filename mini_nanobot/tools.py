@@ -363,12 +363,17 @@ class AnalyzePlanningLogTool(Tool):
     name = "analyze_planning_log"
     description = (
         "Analyze J6B parking planning logs with cycle segmentation, trajectory geometry checks, "
-        "risk scoring, and structured report output."
+        "risk scoring, profile-aware thresholds, and structured report output."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "log_path": {"type": "string", "description": "Absolute path to planning log file."},
+            "log_path": {"type": "string", "description": "Absolute path to a planning log file."},
+            "log_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of absolute planning log paths to merge into one analysis run.",
+            },
             "focus": {
                 "type": "string",
                 "enum": ["comprehensive", "safety", "stability"],
@@ -379,8 +384,31 @@ class AnalyzePlanningLogTool(Tool):
             "report_dir": {"type": "string", "description": "Directory to save analysis JSON report."},
             "max_lines": {"type": "integer", "default": 200000},
             "evidence_limit": {"type": "integer", "default": 8},
+            "profile": {
+                "type": "string",
+                "enum": ["conservative", "j6b_default", "lenient"],
+                "default": "j6b_default",
+            },
+            "profile_path": {
+                "type": "string",
+                "description": "Optional JSON file with threshold overrides based on a built-in profile.",
+            },
+            "planner_inputs_csv_path": {
+                "type": "string",
+                "description": "Optional planner_inputs.csv path. If omitted, auto-detect next to the log file.",
+            },
+            "generate_process_replay": {
+                "type": "boolean",
+                "default": True,
+                "description": "Whether to render the planning process replay section in the HTML dashboard.",
+            },
+            "generate_gridmap_view": {
+                "type": "boolean",
+                "default": True,
+                "description": "Whether to render the planner_inputs.csv gridmap section in the HTML dashboard.",
+            },
         },
-        "required": ["log_path"],
+        "required": [],
     }
 
     _LINE_RE = re.compile(r"^\[(?P<ts>[^\]]+)\]\s+\[(?P<level>[A-Z]+)\]\s+\[(?P<module>[^\]]+)\](?P<rest>.*)$")
@@ -1332,10 +1360,9 @@ data.anomalies.forEach((a) => {
         return cycle
 
     def run(self, **kwargs: Any) -> str:
-        try:
-            return self._run_impl(**kwargs)
-        except Exception as e:
-            return self._build_error(f"Unexpected analyzer error: {e}")
+        from mini_nanobot.planning import analyze_planning_log_to_json
+
+        return analyze_planning_log_to_json(workspace=self.workspace, **kwargs)
 
     def _run_impl(self, **kwargs: Any) -> str:
         parse_warnings: list[str] = []

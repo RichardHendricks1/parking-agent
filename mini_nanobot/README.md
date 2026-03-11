@@ -179,6 +179,8 @@ python3 -m mini_nanobot chat -m "请分析这个日志：/Users/starktony/Downlo
 }
 ```
 
+不传 `report_dir` 时，默认输出到 `<log_path所在目录>/reports/`。
+
 输出包含：
 - `summary`, `risk_level`, `score_0_to_100`
 - `key_metrics`（周期、抖动、重规划、轨迹几何指标等）

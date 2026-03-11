@@ -16,6 +16,7 @@ from urllib import request as url_request
 
 from mini_nanobot.agent import MiniAgent
 from mini_nanobot.config import data_dir, ensure_workspace, load_config, onboard, save_config
+from mini_nanobot.planning import available_profile_names, analyze_planning_log, batch_analyze_logs
 from mini_nanobot.provider import OpenAICompatibleProvider
 from mini_nanobot.session import SessionStore
 from mini_nanobot.tools import (
@@ -415,6 +416,86 @@ def cmd_clear_session() -> int:
     return 0
 
 
+def _analysis_workspace() -> Path:
+    cfg = load_config()
+    return ensure_workspace(cfg)
+
+
+def cmd_analyze_log(
+    *,
+    log_paths: list[str],
+    focus: str,
+    profile: str,
+    profile_path: str | None,
+    planner_inputs_csv: str | None,
+    generate_process_replay: bool,
+    generate_gridmap_view: bool,
+    save_report: bool,
+    generate_dashboard: bool,
+    report_dir: str | None,
+    max_lines: int,
+    evidence_limit: int,
+) -> int:
+    payload = analyze_planning_log(
+        workspace=_analysis_workspace(),
+        log_path=log_paths[0] if log_paths else None,
+        log_paths=log_paths,
+        focus=focus,
+        profile=profile,
+        profile_path=profile_path,
+        planner_inputs_csv_path=planner_inputs_csv,
+        generate_process_replay=generate_process_replay,
+        generate_gridmap_view=generate_gridmap_view,
+        save_report=save_report,
+        generate_dashboard=generate_dashboard,
+        report_dir=report_dir,
+        max_lines=max_lines,
+        evidence_limit=evidence_limit,
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 1 if payload.get("error") else 0
+
+
+def cmd_batch_analyze_logs(
+    *,
+    log_dir: str,
+    pattern: str,
+    recursive: bool,
+    max_files: int,
+    focus: str,
+    profile: str,
+    profile_path: str | None,
+    planner_inputs_csv: str | None,
+    generate_process_replay: bool,
+    generate_gridmap_view: bool,
+    save_report: bool,
+    generate_dashboard: bool,
+    report_dir: str | None,
+    max_lines: int,
+    evidence_limit: int,
+) -> int:
+    payload = batch_analyze_logs(
+        workspace=_analysis_workspace(),
+        log_dir=log_dir,
+        pattern=pattern,
+        recursive=recursive,
+        max_files=max_files,
+        focus=focus,
+        profile=profile,
+        profile_path=profile_path,
+        planner_inputs_csv_path=planner_inputs_csv,
+        generate_process_replay=generate_process_replay,
+        generate_gridmap_view=generate_gridmap_view,
+        save_report=save_report,
+        generate_dashboard=generate_dashboard,
+        report_dir=report_dir,
+        max_lines=max_lines,
+        evidence_limit=evidence_limit,
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 1 if payload.get("error") else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mini_nanobot")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -456,6 +537,55 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="Interactive chat or one-shot message")
     chat.add_argument("-m", "--message", help="One-shot message")
 
+    profile_choices = available_profile_names()
+
+    analyze_log = sub.add_parser("analyze-log", help="Run deterministic planning log analysis without an LLM")
+    analyze_log.add_argument("--log-path", required=True, nargs="+", help="One or more absolute planning log paths")
+    analyze_log.add_argument("--focus", choices=["comprehensive", "safety", "stability"], default="comprehensive")
+    analyze_log.add_argument("--profile", choices=profile_choices, default="j6b_default", help="Threshold profile")
+    analyze_log.add_argument("--profile-path", help="Optional JSON file with threshold overrides")
+    analyze_log.add_argument("--planner-inputs-csv", help="Optional planner_inputs.csv path; defaults to log directory auto-detect")
+    analyze_log.add_argument(
+        "--no-process-replay",
+        action="store_true",
+        help="Disable HTML planning process replay section",
+    )
+    analyze_log.add_argument(
+        "--no-gridmap-view",
+        action="store_true",
+        help="Disable HTML planner_inputs.csv gridmap section",
+    )
+    analyze_log.add_argument("--report-dir", help="Directory for report JSON/HTML")
+    analyze_log.add_argument("--max-lines", type=int, default=200000, help="Maximum log lines to analyze")
+    analyze_log.add_argument("--evidence-limit", type=int, default=8, help="Maximum evidence rows per anomaly")
+    analyze_log.add_argument("--no-save-report", action="store_true", help="Do not write JSON report files")
+    analyze_log.add_argument("--no-dashboard", action="store_true", help="Do not write HTML dashboard")
+
+    batch_log = sub.add_parser("batch-analyze-logs", help="Analyze a directory of planning logs without an LLM")
+    batch_log.add_argument("--log-dir", required=True, help="Directory containing planning logs")
+    batch_log.add_argument("--pattern", default="planning.log*", help="Filename glob pattern")
+    batch_log.add_argument("--recursive", action="store_true", help="Search directories recursively")
+    batch_log.add_argument("--max-files", type=int, default=200, help="Maximum number of log files to analyze")
+    batch_log.add_argument("--focus", choices=["comprehensive", "safety", "stability"], default="comprehensive")
+    batch_log.add_argument("--profile", choices=profile_choices, default="j6b_default", help="Threshold profile")
+    batch_log.add_argument("--profile-path", help="Optional JSON file with threshold overrides")
+    batch_log.add_argument("--planner-inputs-csv", help="Optional planner_inputs.csv path override for all files")
+    batch_log.add_argument(
+        "--no-process-replay",
+        action="store_true",
+        help="Disable HTML planning process replay section",
+    )
+    batch_log.add_argument(
+        "--no-gridmap-view",
+        action="store_true",
+        help="Disable HTML planner_inputs.csv gridmap section",
+    )
+    batch_log.add_argument("--report-dir", help="Directory for report JSON/HTML")
+    batch_log.add_argument("--max-lines", type=int, default=200000, help="Maximum log lines per file")
+    batch_log.add_argument("--evidence-limit", type=int, default=8, help="Maximum evidence rows per anomaly")
+    batch_log.add_argument("--no-save-report", action="store_true", help="Do not write JSON summary/report files")
+    batch_log.add_argument("--no-dashboard", action="store_true", help="Do not write HTML dashboards")
+
     sub.add_parser("clear-session", help="Clear current chat session")
     return p
 
@@ -487,6 +617,39 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_local_server_status()
     if args.cmd == "chat":
         return cmd_chat(args.message)
+    if args.cmd == "analyze-log":
+        return cmd_analyze_log(
+            log_paths=args.log_path,
+            focus=args.focus,
+            profile=args.profile,
+            profile_path=args.profile_path,
+            planner_inputs_csv=args.planner_inputs_csv,
+            generate_process_replay=not args.no_process_replay,
+            generate_gridmap_view=not args.no_gridmap_view,
+            save_report=not args.no_save_report,
+            generate_dashboard=not args.no_dashboard,
+            report_dir=args.report_dir,
+            max_lines=args.max_lines,
+            evidence_limit=args.evidence_limit,
+        )
+    if args.cmd == "batch-analyze-logs":
+        return cmd_batch_analyze_logs(
+            log_dir=args.log_dir,
+            pattern=args.pattern,
+            recursive=args.recursive,
+            max_files=args.max_files,
+            focus=args.focus,
+            profile=args.profile,
+            profile_path=args.profile_path,
+            planner_inputs_csv=args.planner_inputs_csv,
+            generate_process_replay=not args.no_process_replay,
+            generate_gridmap_view=not args.no_gridmap_view,
+            save_report=not args.no_save_report,
+            generate_dashboard=not args.no_dashboard,
+            report_dir=args.report_dir,
+            max_lines=args.max_lines,
+            evidence_limit=args.evidence_limit,
+        )
     if args.cmd == "clear-session":
         return cmd_clear_session()
     return 1

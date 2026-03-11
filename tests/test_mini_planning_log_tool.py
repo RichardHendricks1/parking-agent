@@ -229,6 +229,22 @@ def test_analyze_planning_log_writes_json_and_gui_dashboard(tmp_path):
     assert "trajectorySelect" in html
 
 
+def test_analyze_planning_log_defaults_reports_to_log_directory(tmp_path):
+    tool = AnalyzePlanningLogTool(tmp_path / "workspace")
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    base = datetime(2026, 3, 4, 16, 41, 49)
+    log_path = log_dir / "planning_default_dir.log"
+    _write_log(log_path, _cycle_lines(base, 0) + _cycle_lines(base, 100))
+
+    result = json.loads(tool.run(log_path=str(log_path)))
+
+    assert result["report_path"] is not None
+    assert result["dashboard_path"] is not None
+    assert Path(result["report_path"]).parent == log_dir / "reports"
+    assert Path(result["dashboard_path"]).parent == log_dir / "reports"
+
+
 def test_analyze_planning_log_tool_registry_integration(tmp_path):
     base = datetime(2026, 3, 4, 16, 41, 49)
     lines = _cycle_lines(base, 0) + _cycle_lines(base, 100)
