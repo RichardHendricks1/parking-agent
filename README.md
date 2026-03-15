@@ -256,3 +256,121 @@ python3 -m mini_nanobot batch-analyze-logs \
 - `session.py`: JSONL 会话存储
 - `agent.py`: tool-calling 主循环
 - `cli.py`: 命令行入口
+
+## 生产部署与源码暴露
+
+这个仓库现在可以直接作为容器项目部署，推荐走 Docker：
+
+```bash
+docker build -t nanobot-ai:prod .
+```
+
+首次部署建议先初始化配置目录：
+
+```bash
+mkdir -p ~/.nanobot
+docker run --rm \
+  -v ~/.nanobot:/root/.nanobot \
+  nanobot-ai:prod onboard
+```
+
+项目实际读取的配置文件是：
+
+- 宿主机：`~/.nanobot/config.json`
+- 容器内：`/root/.nanobot/config.json`
+
+也就是说，交付给客户时，通常要同时给：
+
+- Docker 镜像
+- `docker-compose.yml` 或启动命令
+- 一份 `config.json` 模板，客户把自己的 API key 填进去
+
+### API 配置
+
+最小可用配置示例（OpenAI）：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "gpt-4.1-mini",
+      "provider": "auto",
+      "workspace": "~/.nanobot/workspace"
+    }
+  },
+  "providers": {
+    "openai": {
+      "apiKey": "sk-xxxx"
+    }
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790
+  }
+}
+```
+
+如果你用的是 OpenAI 兼容接口，可以这样配：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "qwen-plus",
+      "provider": "custom"
+    }
+  },
+  "providers": {
+    "custom": {
+      "apiKey": "your-api-key",
+      "apiBase": "https://your-openai-compatible-endpoint/v1"
+    }
+  }
+}
+```
+
+补充说明：
+
+- `model` 填你实际要调用的模型名。
+- `provider` 建议保持 `auto`；只有在你明确走 `custom` 直连 OpenAI 兼容接口时才手动写 `custom`。
+- 配置文件字段建议使用上面的 `camelCase` 写法，因为程序生成的默认配置就是这个格式。
+- 这个项目当前主要从 `~/.nanobot/config.json` 读取 API 配置；如果没填 key，服务启动时会直接报错。
+
+### 启动服务
+
+填好 `~/.nanobot/config.json` 之后再启动：
+
+```bash
+docker run -d \
+  --name nanobot-gateway \
+  -p 18790:18790 \
+  -v ~/.nanobot:/root/.nanobot \
+  nanobot-ai:prod
+```
+
+也可以直接用 Compose：
+
+```bash
+docker compose up -d nanobot-gateway
+```
+
+可以用下面的命令确认配置是否生效：
+
+```bash
+docker run --rm \
+  -v ~/.nanobot:/root/.nanobot \
+  nanobot-ai:prod status
+```
+
+当前 `Dockerfile` 已改成多阶段构建，运行镜像只保留：
+
+- Python 运行依赖和 `nanobot` 的编译产物（`.pyc`）
+- WhatsApp bridge 的预构建产物（`dist + node_modules`）
+- 启动所需的最小运行环境
+
+不会再把仓库里的 `nanobot/`、`bridge/src/` 这类源码目录原样放进最终运行镜像。
+
+需要注意的边界：
+
+- 后端/容器源码可以通过构建产物化、分层镜像、移除源码文件来减少暴露。
+- 如果以后你做的是浏览器前端，前端运行逻辑最终还是会下发到浏览器，不能做到“完全不让用户看到代码”，只能做到压缩、混淆和减少可读性。

@@ -722,20 +722,28 @@ def _get_bridge_dir() -> Path:
     if (user_bridge / "dist" / "index.js").exists():
         return user_bridge
 
-    # Check for npm
-    if not shutil.which("npm"):
-        console.print("[red]npm not found. Please install Node.js >= 18.[/red]")
-        raise typer.Exit(1)
-
-    # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
-    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
+    # Find bridge payload: prefer prebuilt runtime assets, then fall back to source.
+    env_bridge = os.environ.get("NANOBOT_BUNDLED_BRIDGE_DIR")
+    candidates = []
+    if env_bridge:
+        candidates.append(Path(env_bridge).expanduser())
+    candidates.extend(
+        [
+            Path("/opt/nanobot/bridge"),
+            Path(__file__).parent.parent / "bridge",  # nanobot/bridge (installed)
+            Path(__file__).parent.parent.parent / "bridge",  # repo root/bridge (dev)
+        ]
+    )
 
     source = None
-    if (pkg_bridge / "package.json").exists():
-        source = pkg_bridge
-    elif (src_bridge / "package.json").exists():
-        source = src_bridge
+    source_is_prebuilt = False
+    for candidate in candidates:
+        if (candidate / "dist" / "index.js").exists() and (candidate / "package.json").exists():
+            source = candidate
+            source_is_prebuilt = True
+            break
+        if source is None and (candidate / "package.json").exists():
+            source = candidate
 
     if not source:
         console.print("[red]Bridge source not found.[/red]")
@@ -748,6 +756,17 @@ def _get_bridge_dir() -> Path:
     user_bridge.parent.mkdir(parents=True, exist_ok=True)
     if user_bridge.exists():
         shutil.rmtree(user_bridge)
+
+    if source_is_prebuilt:
+        shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("src", "*.ts", "tsconfig.json"))
+        console.print("[green]✓[/green] Bridge ready\n")
+        return user_bridge
+
+    # Check for npm only when we need to build from source.
+    if not shutil.which("npm"):
+        console.print("[red]npm not found. Please install Node.js >= 18.[/red]")
+        raise typer.Exit(1)
+
     shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
 
     # Install and build
@@ -771,6 +790,7 @@ def _get_bridge_dir() -> Path:
 @channels_app.command("login")
 def channels_login():
     """Link device via QR code."""
+    import shutil
     import subprocess
 
     from nanobot.config.loader import load_config
@@ -786,11 +806,15 @@ def channels_login():
         env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token
 
     try:
-        subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
+        bridge_entry = bridge_dir / "dist" / "index.js"
+        if bridge_entry.exists() and shutil.which("node"):
+            subprocess.run(["node", str(bridge_entry)], cwd=bridge_dir, check=True, env=env)
+        else:
+            subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Bridge failed: {e}[/red]")
     except FileNotFoundError:
-        console.print("[red]npm not found. Please install Node.js.[/red]")
+        console.print("[red]node/npm not found. Please install Node.js.[/red]")
 
 
 # ============================================================================

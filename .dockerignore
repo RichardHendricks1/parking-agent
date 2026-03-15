@@ -8,6 +8,16 @@ build/
 .git
 .env
 .assets
+.venv
+.pytest_cache
+.local
 node_modules/
 bridge/dist/
+tests/
+case/
+parking-bot/
+mini_nanobot/
+models/
+nanobot_project_analysis.md
+core_agent_lines.sh
 workspace/
