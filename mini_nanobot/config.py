@@ -17,6 +17,7 @@ class AppConfig:
     max_iterations: int = 8
     max_tokens: int = 1024
     temperature: float = 0.2
+    post_tool_analysis_rounds: int = 2
 
 
 def data_dir() -> Path:

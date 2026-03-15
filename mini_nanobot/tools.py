@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +147,1805 @@ class ExecTool(Tool):
             merged += ("\n" if merged else "") + f"\nExit code: {proc.returncode}"
         merged = merged.strip() or "(no output)"
         return merged[:10_000]
+
+
+class AnalyzeParkingTool(Tool):
+    name = "analyze_parking"
+    description = (
+        "Analyze a parking scenario and return structured risk, feasibility, and maneuver guidance."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "scenario": {
+                "type": "object",
+                "properties": {
+                    "slot_width_m": {"type": "number"},
+                    "slot_length_m": {"type": "number"},
+                    "vehicle_width_m": {"type": "number"},
+                    "vehicle_length_m": {"type": "number"},
+                    "left_clearance_m": {"type": "number"},
+                    "right_clearance_m": {"type": "number"},
+                    "front_clearance_m": {"type": "number"},
+                    "rear_clearance_m": {"type": "number"},
+                    "speed_kmh": {"type": "number"},
+                    "slope_deg": {"type": "number"},
+                    "steering_angle_deg": {"type": "number"},
+                    "sensor_confidence": {"type": "number"},
+                    "camera_occlusion_ratio": {"type": "number"},
+                    "weather": {"type": "string"},
+                    "obstacles": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "distance_m": {"type": "number"},
+                                "relative_direction": {"type": "string"},
+                            },
+                            "required": ["distance_m"],
+                        },
+                    },
+                },
+                "required": [
+                    "slot_width_m",
+                    "slot_length_m",
+                    "vehicle_width_m",
+                    "vehicle_length_m",
+                ],
+            }
+        },
+        "required": ["scenario"],
+    }
+
+    @staticmethod
+    def _clip(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    @staticmethod
+    def _to_float(data: dict[str, Any], key: str, default: float = 0.0) -> float:
+        raw = data.get(key, default)
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return default
+
+    def run(self, **kwargs: Any) -> str:
+        scenario = kwargs.get("scenario")
+        if not isinstance(scenario, dict):
+            return "Error: scenario must be an object"
+
+        slot_width = self._to_float(scenario, "slot_width_m")
+        slot_length = self._to_float(scenario, "slot_length_m")
+        vehicle_width = self._to_float(scenario, "vehicle_width_m")
+        vehicle_length = self._to_float(scenario, "vehicle_length_m")
+        if min(slot_width, slot_length, vehicle_width, vehicle_length) <= 0:
+            return "Error: slot and vehicle dimensions must be positive numbers"
+
+        width_margin = slot_width - vehicle_width
+        length_margin = slot_length - vehicle_length
+
+        left = scenario.get("left_clearance_m")
+        right = scenario.get("right_clearance_m")
+        front = scenario.get("front_clearance_m")
+        rear = scenario.get("rear_clearance_m")
+        if left is None or right is None:
+            left = right = width_margin / 2
+        if front is None or rear is None:
+            front = rear = length_margin / 2
+
+        left = float(left)
+        right = float(right)
+        front = float(front)
+        rear = float(rear)
+
+        obstacles = scenario.get("obstacles", [])
+        obstacle_distances = []
+        closest_obstacle = None
+        for item in obstacles if isinstance(obstacles, list) else []:
+            if not isinstance(item, dict):
+                continue
+            distance = item.get("distance_m")
+            try:
+                distance = float(distance)
+            except (TypeError, ValueError):
+                continue
+            if distance < 0:
+                continue
+            obstacle_distances.append(distance)
+            if closest_obstacle is None or distance < closest_obstacle["distance_m"]:
+                closest_obstacle = {
+                    "name": item.get("name", "unknown"),
+                    "distance_m": round(distance, 3),
+                    "relative_direction": item.get("relative_direction", "unknown"),
+                }
+
+        clearance_values = [left, right, front, rear]
+        clearance_values.extend(obstacle_distances)
+        min_clearance = min(clearance_values) if clearance_values else 0.0
+
+        sensor_conf = self._clip(self._to_float(scenario, "sensor_confidence", 0.85), 0.0, 1.0)
+        occlusion = self._clip(self._to_float(scenario, "camera_occlusion_ratio", 0.1), 0.0, 1.0)
+        speed_kmh = max(0.0, self._to_float(scenario, "speed_kmh", 3.0))
+        slope_deg = abs(self._to_float(scenario, "slope_deg", 0.0))
+        steering_deg = abs(self._to_float(scenario, "steering_angle_deg", 18.0))
+        weather = str(scenario.get("weather", "clear")).lower()
+
+        # Heuristic scores (0-100). Higher is better for each sub-score.
+        width_score = self._clip((width_margin / 0.8) * 100.0, 0.0, 100.0)
+        length_score = self._clip((length_margin / 1.0) * 100.0, 0.0, 100.0)
+        space_score = round((width_score * 0.6) + (length_score * 0.4), 1)
+
+        speed_penalty = self._clip((speed_kmh - 2.0) * 10.0, 0.0, 40.0)
+        steering_penalty = self._clip((steering_deg - 20.0) * 0.8, 0.0, 20.0)
+        slope_penalty = self._clip(slope_deg * 3.0, 0.0, 20.0)
+        maneuver_score = round(self._clip(100.0 - speed_penalty - steering_penalty - slope_penalty, 0.0, 100.0), 1)
+
+        visibility_penalty = self._clip(occlusion * 50.0, 0.0, 50.0)
+        sensor_penalty = self._clip((1.0 - sensor_conf) * 60.0, 0.0, 60.0)
+        weather_penalty = 0.0
+        if weather in {"rain", "snow", "fog", "storm"}:
+            weather_penalty = 10.0
+        perception_score = round(self._clip(100.0 - visibility_penalty - sensor_penalty - weather_penalty, 0.0, 100.0), 1)
+
+        # Collision risk from minimum clearance.
+        if min_clearance < 0.10:
+            collision_risk = 95.0
+        elif min_clearance < 0.20:
+            collision_risk = 78.0
+        elif min_clearance < 0.30:
+            collision_risk = 60.0
+        elif min_clearance < 0.45:
+            collision_risk = 40.0
+        else:
+            collision_risk = 20.0
+
+        risk_raw = (
+            (100.0 - space_score) * 0.35
+            + (100.0 - maneuver_score) * 0.20
+            + (100.0 - perception_score) * 0.20
+            + collision_risk * 0.25
+        )
+        risk_score = round(self._clip(risk_raw, 0.0, 100.0), 1)
+
+        fit_feasible = width_margin >= 0.20 and length_margin >= 0.30 and min_clearance >= 0.10
+
+        if risk_score >= 75 or not fit_feasible:
+            risk_level = "high"
+        elif risk_score >= 45:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        recommendations = []
+        if not fit_feasible:
+            recommendations.append("Current slot is likely too tight; choose a larger slot if possible.")
+        if speed_kmh > 3:
+            recommendations.append("Reduce approach speed to <= 3 km/h before final alignment.")
+        if min_clearance < 0.20:
+            recommendations.append("Use multi-point adjustment; stop and re-center before final reverse.")
+        if occlusion > 0.35:
+            recommendations.append("Visibility is limited; rely on cross-check from all sensors before moving.")
+        if sensor_conf < 0.7:
+            recommendations.append("Sensor confidence is low; switch to conservative mode and increase stop checks.")
+        if not recommendations:
+            recommendations.append("Proceed with standard slow-speed parking, keep continuous clearance monitoring.")
+
+        result = {
+            "fit_feasible": fit_feasible,
+            "risk_level": risk_level,
+            "risk_score_0_to_100": risk_score,
+            "scores": {
+                "space_score_0_to_100": space_score,
+                "maneuver_score_0_to_100": maneuver_score,
+                "perception_score_0_to_100": perception_score,
+            },
+            "key_metrics_m": {
+                "width_margin": round(width_margin, 3),
+                "length_margin": round(length_margin, 3),
+                "left_clearance": round(left, 3),
+                "right_clearance": round(right, 3),
+                "front_clearance": round(front, 3),
+                "rear_clearance": round(rear, 3),
+                "min_clearance": round(min_clearance, 3),
+            },
+            "closest_obstacle": closest_obstacle,
+            "recommended_actions": recommendations,
+            "summary": (
+                f"Parking fit={fit_feasible}, risk={risk_level} ({risk_score}/100), "
+                f"minimum clearance={round(min_clearance, 3)}m."
+            ),
+        }
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+class AnalyzePlanningLogTool(Tool):
+    name = "analyze_planning_log"
+    description = (
+        "Analyze J6B parking planning logs with cycle segmentation, trajectory geometry checks, "
+        "risk scoring, profile-aware thresholds, and structured report output."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "log_path": {"type": "string", "description": "Absolute path to a planning log file."},
+            "log_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of absolute planning log paths to merge into one analysis run.",
+            },
+            "focus": {
+                "type": "string",
+                "enum": ["comprehensive", "safety", "stability"],
+                "default": "comprehensive",
+            },
+            "save_report": {"type": "boolean", "default": True},
+            "generate_dashboard": {"type": "boolean", "default": True},
+            "report_dir": {"type": "string", "description": "Directory to save analysis JSON report."},
+            "max_lines": {"type": "integer", "default": 200000},
+            "evidence_limit": {"type": "integer", "default": 8},
+            "profile": {
+                "type": "string",
+                "enum": ["conservative", "j6b_default", "lenient"],
+                "default": "j6b_default",
+            },
+            "profile_path": {
+                "type": "string",
+                "description": "Optional JSON file with threshold overrides based on a built-in profile.",
+            },
+            "planner_inputs_csv_path": {
+                "type": "string",
+                "description": "Optional planner_inputs.csv path. If omitted, auto-detect next to the log file.",
+            },
+            "generate_process_replay": {
+                "type": "boolean",
+                "default": True,
+                "description": "Whether to render the planning process replay section in the HTML dashboard.",
+            },
+            "generate_gridmap_view": {
+                "type": "boolean",
+                "default": True,
+                "description": "Whether to render the planner_inputs.csv gridmap section in the HTML dashboard.",
+            },
+        },
+        "required": [],
+    }
+
+    _LINE_RE = re.compile(r"^\[(?P<ts>[^\]]+)\]\s+\[(?P<level>[A-Z]+)\]\s+\[(?P<module>[^\]]+)\](?P<rest>.*)$")
+    _REPLAN_RE = re.compile(r"Replan:(\d+)")
+    _FORK_TIME_RE = re.compile(r"FORK STAR USED TIME:([0-9]+)\s*ms", re.IGNORECASE)
+    _PATH_SIZE_RE = re.compile(r"OUTPUT PATH SIZE:([0-9]+)", re.IGNORECASE)
+    _TRAJ_SEG_RE = re.compile(r"trajectory[^\n]*?([0-9]+)\s*segments", re.IGNORECASE)
+    _POINT_RE = re.compile(
+        r"No\[(?P<idx>\d+)\]\s*x\[(?P<x>-?\d+(?:\.\d+)?)mm\]\s*y\[(?P<y>-?\d+(?:\.\d+)?)mm\]"
+        r"\s*yaw\[(?P<yaw>-?\d+(?:\.\d+)?)degree\]\s*curv\[(?P<curv>-?\d+(?:\.\d+)?)mm\]"
+    )
+
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+
+    @staticmethod
+    def _clip(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    @staticmethod
+    def _to_int(raw: Any, default: int) -> int:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_bool(raw: Any, default: bool) -> bool:
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            low = raw.strip().lower()
+            if low in {"true", "1", "yes", "y"}:
+                return True
+            if low in {"false", "0", "no", "n"}:
+                return False
+        return default
+
+    @staticmethod
+    def _severity_rank(severity: str) -> int:
+        return {"high": 3, "medium": 2, "low": 1}.get(severity, 0)
+
+    @staticmethod
+    def _parse_ts(raw: str) -> datetime | None:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _stats(values: list[float], ndigits: int = 3) -> dict[str, Any]:
+        if not values:
+            return {"count": 0}
+        vals = sorted(float(v) for v in values)
+        n = len(vals)
+        p95_idx = min(n - 1, math.ceil(0.95 * n) - 1)
+        return {
+            "count": n,
+            "min": round(vals[0], ndigits),
+            "max": round(vals[-1], ndigits),
+            "avg": round(sum(vals) / n, ndigits),
+            "p95": round(vals[p95_idx], ndigits),
+        }
+
+    @staticmethod
+    def _angle_delta(a: float, b: float) -> float:
+        diff = b - a
+        while diff > 180.0:
+            diff -= 360.0
+        while diff < -180.0:
+            diff += 360.0
+        return abs(diff)
+
+    @staticmethod
+    def _safe_message(msg: str, max_len: int = 220) -> str:
+        clean = msg.replace("\n", " ").replace("\r", " ")
+        return clean if len(clean) <= max_len else clean[:max_len] + "..."
+
+    def _parse_line(self, line: str, line_no: int) -> dict[str, Any] | None:
+        m = self._LINE_RE.match(line.strip())
+        if not m:
+            return None
+        rest = m.group("rest").strip()
+        # Remove optional bracketed metadata blocks such as [PID:... TID:...].
+        while rest.startswith("["):
+            end = rest.find("]")
+            if end <= 0:
+                break
+            rest = rest[end + 1 :].strip()
+
+        ts_raw = m.group("ts")
+        return {
+            "line_no": line_no,
+            "timestamp_raw": ts_raw,
+            "timestamp": self._parse_ts(ts_raw),
+            "level": m.group("level"),
+            "module": m.group("module"),
+            "message": rest,
+            "raw": line,
+        }
+
+    def _build_error(self, message: str, parse_warnings: list[str] | None = None) -> str:
+        payload = {
+            "summary": "Planning log analysis failed.",
+            "risk_level": "unknown",
+            "score_0_to_100": 0.0,
+            "key_metrics": {},
+            "top_anomalies": [],
+            "report_path": None,
+            "dashboard_path": None,
+            "parse_warnings": parse_warnings or [],
+            "error": message,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    def _build_dashboard_html(
+        self,
+        *,
+        log_path: Path,
+        summary: str,
+        risk_level: str,
+        score: float,
+        key_metrics: dict[str, Any],
+        anomalies: list[dict[str, Any]],
+        timer_intervals_ms: list[float],
+        fork_times: list[int],
+        cycle_preview: list[dict[str, Any]],
+        trajectory_preview: list[dict[str, Any]],
+    ) -> str:
+        dashboard_data = {
+            "timerIntervals": [round(v, 3) for v in timer_intervals_ms[:300]],
+            "forkTimes": [int(v) for v in fork_times[:300]],
+            "cycleIndex": [int(c["cycle_index"]) for c in cycle_preview[:200]],
+            "yawJump": [float(c["yaw_jump_max_deg"]) for c in cycle_preview[:200]],
+            "pathLength": [float(c["path_length_m"]) for c in cycle_preview[:200]],
+            "curvAbs": [float(c["curv_abs_max"]) for c in cycle_preview[:200]],
+            "trajectoryPreview": trajectory_preview[:24],
+            "anomalies": [
+                {
+                    "rule": a.get("rule"),
+                    "severity": a.get("severity"),
+                    "count": a.get("count"),
+                    "detail": a.get("detail"),
+                }
+                for a in anomalies[:30]
+            ],
+        }
+        data_json = json.dumps(dashboard_data, ensure_ascii=False)
+        summary_safe = summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        log_path_safe = str(log_path).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        log_name_safe = log_path.name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+        risk_class = {"high": "risk-high", "medium": "risk-medium", "low": "risk-low"}.get(risk_level, "risk-medium")
+        html_template = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planning Log Dashboard - __LOG_NAME__</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap");
+    :root {
+      --ink: #0b1b2e;
+      --text: #122844;
+      --muted: #4f6380;
+      --sky: #d7e9ff;
+      --sea: #0f7dcf;
+      --teal: #0c9c86;
+      --sand: #f7c57f;
+      --card: rgba(255, 255, 255, 0.86);
+      --line: #d3dfef;
+      --high: #d43f3a;
+      --mid: #d48806;
+      --low: #16845f;
+      --shadow: 0 18px 40px rgba(17, 45, 89, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(215, 233, 255, 0.72), rgba(215, 233, 255, 0) 35%),
+        radial-gradient(circle at 92% 5%, rgba(215, 255, 245, 0.72), rgba(215, 255, 245, 0) 32%),
+        radial-gradient(circle at 80% 80%, rgba(255, 232, 205, 0.62), rgba(255, 232, 205, 0) 32%),
+        linear-gradient(165deg, #f2f7ff 0%, #f8fbff 48%, #f4fbfa 100%);
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .blob {
+      position: fixed;
+      border-radius: 999px;
+      filter: blur(30px);
+      opacity: 0.42;
+      pointer-events: none;
+      z-index: 0;
+      animation: floaty 12s ease-in-out infinite;
+    }
+    .blob.a { width: 270px; height: 270px; background: #9ec9ff; top: -80px; right: -40px; }
+    .blob.b { width: 220px; height: 220px; background: #9de7dd; left: -70px; top: 30vh; animation-delay: 1.5s; }
+    .blob.c { width: 180px; height: 180px; background: #ffd8a8; right: 16%; bottom: -40px; animation-delay: 3s; }
+    .wrap {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 26px 22px 34px;
+      position: relative;
+      z-index: 1;
+    }
+    .card-shell {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.78);
+      box-shadow: var(--shadow);
+      border-radius: 22px;
+      backdrop-filter: blur(5px);
+      animation: rise 0.55s ease both;
+      animation-delay: calc(var(--d, 0) * 70ms);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      padding: 24px 24px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      background:
+        linear-gradient(120deg, rgba(15, 125, 207, 0.18), rgba(255, 255, 255, 0.1) 55%, rgba(12, 156, 134, 0.13));
+      z-index: -1;
+    }
+    .eyebrow {
+      margin: 0;
+      font-size: 11px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: #1d5e9c;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 7px 0 0;
+      font-family: "Sora", "PingFang SC", sans-serif;
+      font-size: clamp(26px, 4vw, 36px);
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .meta {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #5d6f87;
+      word-break: break-all;
+    }
+    .mono { font-family: "JetBrains Mono", monospace; }
+    .summary {
+      margin: 14px 0 0;
+      max-width: 900px;
+      padding: 11px 12px;
+      border: 1px solid #d6e7fb;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.65);
+      line-height: 1.56;
+      font-size: 14px;
+      color: #143257;
+    }
+    .hero-side {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      justify-content: flex-start;
+    }
+    .risk-chip {
+      padding: 10px 16px;
+      border-radius: 999px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      box-shadow: 0 10px 22px rgba(11, 24, 45, 0.16);
+    }
+    .score-box {
+      min-width: 128px;
+      text-align: center;
+      border-radius: 14px;
+      border: 1px solid #d9e7f8;
+      background: rgba(255, 255, 255, 0.84);
+      padding: 10px 12px;
+    }
+    .score-box .v {
+      font-family: "Sora", sans-serif;
+      font-size: 27px;
+      line-height: 1.1;
+      color: #11335a;
+      font-weight: 700;
+    }
+    .score-box .k {
+      margin-top: 4px;
+      color: #60738d;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .risk-high { background: linear-gradient(135deg, #c7362f, #e35149); }
+    .risk-medium { background: linear-gradient(135deg, #cf7a05, #ec9b17); }
+    .risk-low { background: linear-gradient(135deg, #0e8a64, #14aa7c); }
+
+    .kpi-grid {
+      margin-top: 15px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .kpi {
+      grid-column: span 2;
+      padding: 14px 14px 12px;
+      min-height: 112px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi.primary {
+      background: linear-gradient(145deg, #0f7dcf, #1a8adf 56%, #37a0f0);
+      color: #fff;
+    }
+    .kpi.primary .label, .kpi.primary .sub { color: rgba(255, 255, 255, 0.84); }
+    .kpi .label {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #62748d;
+      font-weight: 600;
+    }
+    .kpi .val {
+      margin-top: 8px;
+      font-family: "Sora", sans-serif;
+      font-weight: 700;
+      font-size: 30px;
+      line-height: 1;
+      color: #112f53;
+    }
+    .kpi .sub {
+      margin-top: 9px;
+      font-size: 12px;
+      color: #5f738e;
+    }
+    .kpi.primary::before {
+      content: "";
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.17);
+      top: -56px;
+      right: -42px;
+    }
+
+    .chart-grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .card {
+      grid-column: span 6;
+      padding: 14px 15px 15px;
+      min-height: 346px;
+    }
+    .card h3 {
+      margin: 0;
+      font-family: "Sora", sans-serif;
+      font-size: 17px;
+      color: #102a48;
+      letter-spacing: 0.01em;
+    }
+    .hint {
+      margin: 5px 0 11px;
+      color: #60748f;
+      font-size: 12px;
+    }
+    canvas {
+      width: 100%;
+      height: 252px;
+      border-radius: 14px;
+      border: 1px solid #dde8f7;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 251, 255, 0.9)),
+        repeating-linear-gradient(45deg, rgba(230, 240, 252, 0.45) 0px, rgba(230, 240, 252, 0.45) 1px, rgba(255, 255, 255, 0) 1px, rgba(255, 255, 255, 0) 16px);
+    }
+    .trajectory-card {
+      margin-top: 14px;
+      padding: 16px 16px 15px;
+    }
+    #trajectoryCanvas {
+      height: 430px;
+      background:
+        linear-gradient(180deg, #fdfefe 0%, #f2f9ff 100%);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .toolbar .left {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #2a4465;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    #trajectoryMeta {
+      margin: 0;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #edf5ff;
+      border: 1px solid #d7e8fb;
+      color: #355375;
+    }
+    select {
+      border: 1px solid #ccdff6;
+      border-radius: 11px;
+      padding: 7px 11px;
+      background: #fff;
+      color: #15375c;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #5c7391;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .legend .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 5px;
+    }
+
+    .full {
+      margin-top: 14px;
+      padding: 14px 15px 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #ebf1fa;
+      text-align: left;
+      padding: 10px 9px;
+      vertical-align: top;
+    }
+    th {
+      background: #f2f7ff;
+      color: #4f6887;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    tr:hover td { background: #f8fbff; }
+    .sev-high { color: var(--high); font-weight: 700; }
+    .sev-medium { color: var(--mid); font-weight: 700; }
+    .sev-low { color: var(--low); font-weight: 700; }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(14px); }
+    }
+
+    @media (max-width: 1120px) {
+      .kpi { grid-column: span 4; }
+      .kpi.primary { grid-column: span 12; }
+    }
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .hero-side { align-items: flex-start; }
+      .kpi { grid-column: span 6; }
+      .card { grid-column: span 12; }
+      #trajectoryCanvas { height: 330px; }
+    }
+    @media (max-width: 620px) {
+      .wrap { padding: 16px 12px 24px; }
+      .kpi-grid, .chart-grid { gap: 10px; }
+      .kpi { grid-column: span 12; min-height: 100px; }
+      canvas { height: 220px; }
+      #trajectoryCanvas { height: 280px; }
+      .summary { font-size: 13px; }
+      .legend { gap: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="blob a"></div>
+  <div class="blob b"></div>
+  <div class="blob c"></div>
+  <div class="wrap">
+    <section class="hero card-shell" style="--d:0">
+      <div>
+        <p class="eyebrow">J6B Planning Intelligence</p>
+        <h1>Planning Log Dashboard</h1>
+        <div class="meta mono">__LOG_PATH__</div>
+        <p class="summary">__SUMMARY__</p>
+      </div>
+      <div class="hero-side">
+        <div class="risk-chip __RISK_CLASS__">Risk: __RISK_LEVEL__</div>
+        <div class="score-box">
+          <div class="v">__SCORE__</div>
+          <div class="k">Composite Score</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="kpi-grid">
+      <div class="kpi card-shell primary" style="--d:1"><div class="label">Overall Risk Score</div><div class="val">__SCORE__</div><div class="sub">Focus: __FOCUS__</div></div>
+      <div class="kpi card-shell" style="--d:2"><div class="label">Cycle Count</div><div class="val">__CYCLE_COUNT__</div><div class="sub">with points: __CYCLE_WITH_POINTS__</div></div>
+      <div class="kpi card-shell" style="--d:3"><div class="label">Parsed Lines</div><div class="val">__PARSED_LINES__</div><div class="sub">total: __LINE_COUNT__</div></div>
+      <div class="kpi card-shell" style="--d:4"><div class="label">Timer Jitter</div><div class="val">__TIMER_JITTER__</div><div class="sub">out of [80, 140] ms</div></div>
+      <div class="kpi card-shell" style="--d:5"><div class="label">Replan Ratio</div><div class="val">__REPLAN_RATIO__</div><div class="sub">longest streak: __REPLAN_STREAK__</div></div>
+      <div class="kpi card-shell" style="--d:6"><div class="label">Top Severity</div><div class="val">__HIGH_ANOMALY_COUNT__</div><div class="sub">high anomalies</div></div>
+    </section>
+
+    <section class="chart-grid">
+      <div class="card card-shell" style="--d:7">
+        <h3>Timer Interval (ms)</h3>
+        <div class="hint">Planner loop interval trend with guard rails at 80 / 140 ms.</div>
+        <canvas id="timerChart"></canvas>
+      </div>
+      <div class="card card-shell" style="--d:8">
+        <h3>Fork Star Used Time (ms)</h3>
+        <div class="hint">Runtime load profile across planning cycles.</div>
+        <canvas id="forkChart"></canvas>
+      </div>
+      <div class="card card-shell" style="--d:9">
+        <h3>Yaw Jump Max per Cycle (deg)</h3>
+        <div class="hint">Steering continuity risk view with 8 deg threshold.</div>
+        <canvas id="yawChart"></canvas>
+      </div>
+      <div class="card card-shell" style="--d:10">
+        <h3>Path Length / Curvature Blend</h3>
+        <div class="hint">Composite trend for route scale and curvature intensity.</div>
+        <canvas id="pathChart"></canvas>
+      </div>
+    </section>
+
+    <section class="trajectory-card card-shell" style="--d:11">
+      <h3>Output Trajectory Map</h3>
+      <div class="toolbar">
+        <div class="left">
+          <label for="trajectorySelect">Cycle:</label>
+          <select id="trajectorySelect"></select>
+          <span id="trajectoryMeta"></span>
+        </div>
+        <div class="legend">
+          <span><span class="dot" style="background:#1185ff;"></span>selected</span>
+          <span><span class="dot" style="background:#e35149;"></span>high</span>
+          <span><span class="dot" style="background:#ec9b17;"></span>medium</span>
+          <span><span class="dot" style="background:#92a7c0;"></span>normal</span>
+        </div>
+      </div>
+      <canvas id="trajectoryCanvas"></canvas>
+    </section>
+
+    <section class="full card-shell" style="--d:12">
+      <h3>Top Anomalies</h3>
+      <table id="anomalyTable">
+        <thead><tr><th>Rule</th><th>Severity</th><th>Count</th><th>Detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+<script>
+const data = __DATA_JSON__;
+
+function yScale(min, max, h, pad) {
+  return (v) => {
+    if (max === min) return h / 2;
+    return h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+  };
+}
+
+function setupHiDPI(canvas) {
+  const ctx = canvas.getContext("2d");
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  const vw = canvas.clientWidth;
+  const vh = canvas.clientHeight;
+  canvas.width = Math.max(1, Math.floor(vw * ratio));
+  canvas.height = Math.max(1, Math.floor(vh * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, vw, vh);
+  return { ctx, vw, vh };
+}
+
+function drawNoData(ctx, text) {
+  ctx.fillStyle = "#6f8097";
+  ctx.font = "500 13px 'IBM Plex Sans'";
+  ctx.fillText(text, 14, 24);
+}
+
+function drawLine(canvasId, values, opts) {
+  const c = document.getElementById(canvasId);
+  const { ctx, vw, vh } = setupHiDPI(c);
+  if (!values || !values.length) {
+    drawNoData(ctx, "No data");
+    return;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = 28;
+  const xStep = values.length > 1 ? (vw - pad * 2) / (values.length - 1) : 0;
+  const yMap = yScale(min, max, vh, pad);
+  const xAt = (i) => pad + i * xStep;
+
+  ctx.strokeStyle = "#dee7f4";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad + (i * (vh - pad * 2) / 4);
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(vw - pad, y);
+    ctx.stroke();
+  }
+
+  const area = ctx.createLinearGradient(0, pad, 0, vh - pad);
+  area.addColorStop(0, `${opts.color}44`);
+  area.addColorStop(1, `${opts.color}06`);
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = xAt(i);
+    const y = yMap(v);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      const px = xAt(i - 1);
+      const py = yMap(values[i - 1]);
+      const mx = (px + x) / 2;
+      ctx.quadraticCurveTo(px, py, mx, (py + y) / 2);
+    }
+  });
+  const lx = xAt(values.length - 1);
+  const ly = yMap(values[values.length - 1]);
+  ctx.lineTo(lx, ly);
+  ctx.lineTo(vw - pad, vh - pad);
+  ctx.lineTo(pad, vh - pad);
+  ctx.closePath();
+  ctx.fillStyle = area;
+  ctx.fill();
+
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = xAt(i);
+    const y = yMap(v);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      const px = xAt(i - 1);
+      const py = yMap(values[i - 1]);
+      const mx = (px + x) / 2;
+      ctx.quadraticCurveTo(px, py, mx, (py + y) / 2);
+    }
+  });
+  ctx.strokeStyle = opts.color;
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+
+  if (opts.thresholds) {
+    ctx.font = "11px 'JetBrains Mono'";
+    opts.thresholds.forEach((t) => {
+      const y = yMap(t.value);
+      ctx.strokeStyle = t.color;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(vw - pad, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = t.color;
+      ctx.fillText(String(t.value), vw - pad - 34, y - 5);
+    });
+  }
+}
+
+function drawBars(canvasId, values, color) {
+  const c = document.getElementById(canvasId);
+  const { ctx, vw, vh } = setupHiDPI(c);
+  if (!values || !values.length) {
+    drawNoData(ctx, "No data");
+    return;
+  }
+  const pad = 28;
+  const max = Math.max(...values, 1);
+  const barW = Math.max(2, (vw - pad * 2) / values.length - 2);
+  values.forEach((v, i) => {
+    const x = pad + i * (barW + 2);
+    const hVal = (v / max) * (vh - pad * 2);
+    const y = vh - pad - hVal;
+    const g = ctx.createLinearGradient(0, y, 0, vh - pad);
+    g.addColorStop(0, `${color}d8`);
+    g.addColorStop(1, `${color}58`);
+    const r = Math.min(5, barW / 2);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, vh - pad);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.lineTo(x + barW - r, y);
+    ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+    ctx.lineTo(x + barW, vh - pad);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+function trajectoryColor(tag, selected) {
+  if (selected) return "#1185ff";
+  if (tag === "high") return "#e35149";
+  if (tag === "medium") return "#ec9b17";
+  return "#92a7c0";
+}
+
+function drawTrajectoryMap(selectedCycleIndex) {
+  const c = document.getElementById("trajectoryCanvas");
+  const { ctx, vw, vh } = setupHiDPI(c);
+  const trajectories = data.trajectoryPreview || [];
+  if (!trajectories.length) {
+    drawNoData(ctx, "No trajectory preview data");
+    return;
+  }
+
+  const allPts = [];
+  trajectories.forEach((t) => (t.points_xy_m || []).forEach((p) => allPts.push(p)));
+  if (!allPts.length) {
+    drawNoData(ctx, "No trajectory points");
+    return;
+  }
+
+  const xs = allPts.map((p) => p[0]);
+  const ys = allPts.map((p) => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 34;
+  const spanX = Math.max(maxX - minX, 1e-6);
+  const spanY = Math.max(maxY - minY, 1e-6);
+  const innerW = Math.max(1, vw - pad * 2);
+  const innerH = Math.max(1, vh - pad * 2);
+  const metersToPx = Math.min(innerW / spanX, innerH / spanY);
+  const drawW = spanX * metersToPx;
+  const drawH = spanY * metersToPx;
+  const offsetX = pad + (innerW - drawW) / 2;
+  const offsetY = pad + (innerH - drawH) / 2;
+
+  const scaleX = (x) => offsetX + (x - minX) * metersToPx;
+  const scaleY = (y) => vh - (offsetY + (y - minY) * metersToPx);
+  const gridLeft = offsetX;
+  const gridRight = offsetX + drawW;
+  const gridBottom = vh - offsetY;
+  const gridTop = gridBottom - drawH;
+
+  ctx.strokeStyle = "#dbe8f8";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const x = gridLeft + (i * (gridRight - gridLeft) / 5);
+    ctx.beginPath();
+    ctx.moveTo(x, gridTop);
+    ctx.lineTo(x, gridBottom);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 6; i++) {
+    const y = gridTop + (i * (gridBottom - gridTop) / 5);
+    ctx.beginPath();
+    ctx.moveTo(gridLeft, y);
+    ctx.lineTo(gridRight, y);
+    ctx.stroke();
+  }
+
+  trajectories.forEach((t) => {
+    const pts = t.points_xy_m || [];
+    if (pts.length < 2) return;
+    const selected = t.cycle_index === selectedCycleIndex;
+    const color = trajectoryColor(t.risk_tag, selected);
+    ctx.lineWidth = selected ? 3 : 1.3;
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = selected ? 1 : 0.32;
+    if (selected) {
+      ctx.shadowColor = `${color}88`;
+      ctx.shadowBlur = 9;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = scaleX(p[0]);
+      const y = scaleY(p[1]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    if (selected) {
+      const first = pts[0], last = pts[pts.length - 1];
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#15a26e";
+      ctx.beginPath();
+      ctx.arc(scaleX(first[0]), scaleY(first[1]), 4.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d43f3a";
+      ctx.beginPath();
+      ctx.arc(scaleX(last[0]), scaleY(last[1]), 4.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  ctx.globalAlpha = 1;
+}
+
+function initTrajectorySelector() {
+  const trajectories = data.trajectoryPreview || [];
+  const sel = document.getElementById("trajectorySelect");
+  const meta = document.getElementById("trajectoryMeta");
+  if (!trajectories.length) {
+    sel.innerHTML = "<option>No trajectory</option>";
+    drawTrajectoryMap(-1);
+    return;
+  }
+  sel.innerHTML = trajectories
+    .map((t, i) => `<option value="${t.cycle_index}" ${i === 0 ? "selected" : ""}>Cycle ${t.cycle_index} (${t.risk_tag})</option>`)
+    .join("");
+
+  const refresh = () => {
+    const target = Number(sel.value);
+    const item = trajectories.find((t) => t.cycle_index === target) || trajectories[0];
+    meta.textContent = `points=${item.point_count}, len=${item.path_length_m}m, yawJump=${item.yaw_jump_max_deg}, curv=${item.curv_abs_max}`;
+    drawTrajectoryMap(item.cycle_index);
+  };
+  sel.addEventListener("change", refresh);
+  refresh();
+}
+
+function renderCharts() {
+  drawLine("timerChart", data.timerIntervals, {
+    color: "#1976d2",
+    thresholds: [{ value: 80, color: "#ec9b17" }, { value: 140, color: "#e35149" }],
+  });
+  drawBars("forkChart", data.forkTimes, "#0ea5a4");
+  drawLine("yawChart", data.yawJump, {
+    color: "#de7f10",
+    thresholds: [{ value: 8, color: "#d43f3a" }],
+  });
+  drawLine("pathChart", data.pathLength.map((v, i) => v + (data.curvAbs[i] || 0) * 20), {
+    color: "#14866a",
+  });
+}
+
+renderCharts();
+initTrajectorySelector();
+window.addEventListener("resize", () => {
+  renderCharts();
+  const sel = document.getElementById("trajectorySelect");
+  drawTrajectoryMap(Number(sel && sel.value ? sel.value : -1));
+});
+
+const tbody = document.querySelector("#anomalyTable tbody");
+data.anomalies.forEach((a) => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${a.rule || ""}</td>
+                  <td class="sev-${a.severity || "low"}">${a.severity || ""}</td>
+                  <td>${a.count ?? ""}</td>
+                  <td>${a.detail || ""}</td>`;
+  tbody.appendChild(tr);
+});
+</script>
+</body>
+</html>
+"""
+        replacements = {
+            "__LOG_NAME__": log_name_safe,
+            "__LOG_PATH__": log_path_safe,
+            "__SUMMARY__": summary_safe,
+            "__RISK_CLASS__": risk_class,
+            "__RISK_LEVEL__": risk_level,
+            "__SCORE__": str(score),
+            "__FOCUS__": str(key_metrics.get("risk_breakdown", {}).get("focus", "comprehensive")),
+            "__CYCLE_COUNT__": str(key_metrics.get("cycle_count", 0)),
+            "__CYCLE_WITH_POINTS__": str(key_metrics.get("cycle_with_points_count", 0)),
+            "__PARSED_LINES__": str(key_metrics.get("parsed_line_count", 0)),
+            "__LINE_COUNT__": str(key_metrics.get("line_count", 0)),
+            "__TIMER_JITTER__": str(key_metrics.get("timer_jitter_count", 0)),
+            "__REPLAN_RATIO__": str(key_metrics.get("replan_ratio", 0.0)),
+            "__REPLAN_STREAK__": str(key_metrics.get("longest_replan_streak", 0)),
+            "__HIGH_ANOMALY_COUNT__": str(sum(1 for a in anomalies if a.get("severity") == "high")),
+            "__DATA_JSON__": data_json,
+        }
+        out = html_template
+        for key, value in replacements.items():
+            out = out.replace(key, value)
+        return out
+
+    def _finalize_cycle(self, cycle: dict[str, Any]) -> dict[str, Any]:
+        points = [cycle["points"][i] for i in sorted(cycle["points"])]
+        point_count = len(points)
+        path_length_m = 0.0
+        yaw_jump_max_deg = 0.0
+        curv_abs_max = 0.0
+        curv_delta_max = 0.0
+        if point_count >= 1:
+            curv_abs_max = max(abs(p["curv"]) for p in points)
+        if point_count >= 2:
+            for i in range(1, point_count):
+                prev = points[i - 1]
+                curr = points[i]
+                dx = curr["x_mm"] - prev["x_mm"]
+                dy = curr["y_mm"] - prev["y_mm"]
+                path_length_m += math.sqrt(dx * dx + dy * dy) / 1000.0
+                yaw_jump_max_deg = max(yaw_jump_max_deg, self._angle_delta(prev["yaw_deg"], curr["yaw_deg"]))
+                curv_delta_max = max(curv_delta_max, abs(curr["curv"] - prev["curv"]))
+
+        cycle["point_count"] = point_count
+        cycle["path_length_m"] = path_length_m
+        cycle["yaw_jump_max_deg"] = yaw_jump_max_deg
+        cycle["curv_abs_max"] = curv_abs_max
+        cycle["curv_delta_max"] = curv_delta_max
+        if cycle["replan_values"]:
+            cycle["replan"] = 1 if any(v == 1 for v in cycle["replan_values"]) else 0
+        else:
+            cycle["replan"] = None
+        return cycle
+
+    def run(self, **kwargs: Any) -> str:
+        from mini_nanobot.planning import analyze_planning_log_to_json
+
+        return analyze_planning_log_to_json(workspace=self.workspace, **kwargs)
+
+    def _run_impl(self, **kwargs: Any) -> str:
+        parse_warnings: list[str] = []
+        log_path_raw = kwargs.get("log_path", "")
+        log_path = Path(str(log_path_raw)).expanduser()
+        if not str(log_path_raw).strip():
+            return self._build_error("Missing required argument: log_path")
+        if not log_path.is_absolute():
+            return self._build_error("log_path must be an absolute path")
+        if not log_path.exists() or not log_path.is_file():
+            return self._build_error(f"log file not found: {log_path}")
+
+        focus = str(kwargs.get("focus", "comprehensive")).strip().lower()
+        if focus not in {"comprehensive", "safety", "stability"}:
+            focus = "comprehensive"
+
+        save_report = self._to_bool(kwargs.get("save_report", True), True)
+        generate_dashboard = self._to_bool(kwargs.get("generate_dashboard", True), True)
+        max_lines = max(1000, self._to_int(kwargs.get("max_lines", 200000), 200000))
+        evidence_limit = self._clip(float(self._to_int(kwargs.get("evidence_limit", 8), 8)), 1.0, 20.0)
+        evidence_limit = int(evidence_limit)
+
+        report_dir_raw = kwargs.get("report_dir")
+        if report_dir_raw:
+            report_dir = Path(str(report_dir_raw)).expanduser()
+            if not report_dir.is_absolute():
+                report_dir = self.workspace / report_dir
+        else:
+            report_dir = self.workspace / "reports"
+
+        try:
+            data = log_path.read_bytes()
+        except Exception as e:
+            return self._build_error(f"failed to read log file: {e}")
+
+        null_byte_count = data.count(b"\x00")
+        if null_byte_count:
+            parse_warnings.append(f"Removed {null_byte_count} null bytes from log before parsing.")
+            data = data.replace(b"\x00", b"")
+
+        text = data.decode("utf-8", errors="ignore")
+        all_lines = text.splitlines()
+        total_lines = len(all_lines)
+        if total_lines > max_lines:
+            parse_warnings.append(
+                f"Log has {total_lines} lines; only first {max_lines} lines were analyzed."
+            )
+            lines = all_lines[:max_lines]
+        else:
+            lines = all_lines
+
+        level_counts: Counter[str] = Counter()
+        module_counts: Counter[str] = Counter()
+        parsed_lines = 0
+        unparsed_lines = 0
+        cycles: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+
+        for line_no, line in enumerate(lines, 1):
+            entry = self._parse_line(line, line_no)
+            if not entry:
+                unparsed_lines += 1
+                continue
+            parsed_lines += 1
+            level_counts[entry["level"]] += 1
+            module_counts[entry["module"]] += 1
+
+            module = entry["module"]
+            message = entry["message"]
+            message_low = message.lower()
+
+            is_timer = (
+                module == "planningComponent.cpp:44"
+                and "executing timer task (100ms)" in message_low
+            )
+            if is_timer:
+                if current:
+                    cycles.append(self._finalize_cycle(current))
+                current = {
+                    "index": len(cycles) + 1,
+                    "start_entry": entry,
+                    "start_ts": entry["timestamp"],
+                    "replan_values": [],
+                    "replan_evidence": [],
+                    "fork_times": [],
+                    "fork_evidence": [],
+                    "path_sizes": [],
+                    "path_size_evidence": [],
+                    "trajectory_segments": [],
+                    "trajectory_evidence": [],
+                    "plan_finished_count": 0,
+                    "plan_finished_evidence": [],
+                    "collision_pass_count": 0,
+                    "collision_fail_count": 0,
+                    "collision_evidence": [],
+                    "points": {},
+                    "point_evidence": [],
+                }
+                continue
+
+            if current is None:
+                continue
+
+            if m := self._REPLAN_RE.search(message):
+                val = int(m.group(1))
+                current["replan_values"].append(val)
+                current["replan_evidence"].append(entry)
+
+            if m := self._FORK_TIME_RE.search(message):
+                val = int(m.group(1))
+                current["fork_times"].append(val)
+                current["fork_evidence"].append(entry)
+
+            if m := self._PATH_SIZE_RE.search(message):
+                val = int(m.group(1))
+                current["path_sizes"].append(val)
+                current["path_size_evidence"].append(entry)
+
+            if m := self._TRAJ_SEG_RE.search(message):
+                val = int(m.group(1))
+                current["trajectory_segments"].append(val)
+                current["trajectory_evidence"].append(entry)
+
+            if "plan finished" in message_low:
+                current["plan_finished_count"] += 1
+                current["plan_finished_evidence"].append(entry)
+
+            if "collision check pass" in message_low:
+                current["collision_pass_count"] += 1
+                current["collision_evidence"].append(entry)
+            if "collision check fail" in message_low or ("collision" in message_low and "fail" in message_low):
+                current["collision_fail_count"] += 1
+                current["collision_evidence"].append(entry)
+
+            if module == "planningComponent.cpp:330" and "decplan output" in message_low:
+                for point in self._POINT_RE.finditer(message):
+                    idx = int(point.group("idx"))
+                    current["points"][idx] = {
+                        "idx": idx,
+                        "x_mm": float(point.group("x")),
+                        "y_mm": float(point.group("y")),
+                        "yaw_deg": float(point.group("yaw")),
+                        "curv": float(point.group("curv")),
+                    }
+                if current["points"]:
+                    current["point_evidence"].append(entry)
+
+        if current:
+            cycles.append(self._finalize_cycle(current))
+
+        if parsed_lines == 0:
+            return self._build_error("Log format mismatch: no parseable lines found.", parse_warnings)
+
+        if unparsed_lines > 0:
+            parse_warnings.append(f"Skipped {unparsed_lines} lines that did not match expected log format.")
+
+        if not cycles:
+            return self._build_error("Log format mismatch: no planning cycles found.", parse_warnings)
+
+        cycle_with_points = [c for c in cycles if c["point_count"] > 0]
+        if not cycle_with_points:
+            return self._build_error("No valid DecPlan trajectory points parsed from log.", parse_warnings)
+
+        timer_intervals_ms: list[float] = []
+        timer_jitter_evidence: list[dict[str, Any]] = []
+        for i in range(1, len(cycles)):
+            a = cycles[i - 1]["start_ts"]
+            b = cycles[i]["start_ts"]
+            if not a or not b:
+                continue
+            delta_ms = (b - a).total_seconds() * 1000.0
+            timer_intervals_ms.append(delta_ms)
+            if delta_ms < 80.0 or delta_ms > 140.0:
+                timer_jitter_evidence.append(cycles[i]["start_entry"])
+
+        fork_times = [t for c in cycles for t in c["fork_times"]]
+        path_sizes = [s for c in cycles for s in c["path_sizes"]]
+        traj_segments = [s for c in cycles for s in c["trajectory_segments"]]
+        point_counts = [c["point_count"] for c in cycle_with_points]
+        path_lengths = [c["path_length_m"] for c in cycle_with_points]
+        yaw_jumps = [c["yaw_jump_max_deg"] for c in cycle_with_points]
+        curv_abs = [c["curv_abs_max"] for c in cycle_with_points]
+        curv_delta = [c["curv_delta_max"] for c in cycle_with_points]
+
+        anomalies: list[dict[str, Any]] = []
+
+        def evidence(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            out = []
+            for e in entries[:evidence_limit]:
+                out.append(
+                    {
+                        "line_no": e.get("line_no"),
+                        "timestamp": e.get("timestamp_raw"),
+                        "module": e.get("module"),
+                        "message": self._safe_message(e.get("message", "")),
+                    }
+                )
+            return out
+
+        jitter_count = len(timer_jitter_evidence)
+        if jitter_count > 0:
+            ratio = jitter_count / max(1, len(timer_intervals_ms))
+            anomalies.append(
+                {
+                    "rule": "timer_interval_range",
+                    "severity": "high" if ratio >= 0.2 else "medium",
+                    "category": "stability",
+                    "count": jitter_count,
+                    "detail": (
+                        f"{jitter_count} timer intervals outside [80,140]ms "
+                        f"(ratio={round(ratio, 3)})."
+                    ),
+                    "evidence": evidence(timer_jitter_evidence),
+                }
+            )
+
+        fork_high = []
+        fork_medium = []
+        for c in cycles:
+            for idx, t in enumerate(c["fork_times"]):
+                ev = c["fork_evidence"][min(idx, len(c["fork_evidence"]) - 1)]
+                if t > 800:
+                    fork_high.append(ev)
+                elif t > 300:
+                    fork_medium.append(ev)
+        if fork_high:
+            anomalies.append(
+                {
+                    "rule": "fork_star_time",
+                    "severity": "high",
+                    "category": "stability",
+                    "count": len(fork_high),
+                    "detail": f"{len(fork_high)} cycles with FORK STAR USED TIME > 800ms.",
+                    "evidence": evidence(fork_high),
+                }
+            )
+        elif fork_medium:
+            anomalies.append(
+                {
+                    "rule": "fork_star_time",
+                    "severity": "medium",
+                    "category": "stability",
+                    "count": len(fork_medium),
+                    "detail": f"{len(fork_medium)} cycles with FORK STAR USED TIME > 300ms.",
+                    "evidence": evidence(fork_medium),
+                }
+            )
+
+        low_path_evidence = []
+        for c in cycles:
+            for idx, size in enumerate(c["path_sizes"]):
+                if size < 100:
+                    low_path_evidence.append(c["path_size_evidence"][min(idx, len(c["path_size_evidence"]) - 1)])
+        if low_path_evidence:
+            anomalies.append(
+                {
+                    "rule": "output_path_size",
+                    "severity": "medium",
+                    "category": "safety",
+                    "count": len(low_path_evidence),
+                    "detail": f"{len(low_path_evidence)} path outputs with size < 100.",
+                    "evidence": evidence(low_path_evidence),
+                }
+            )
+
+        yaw_evidence = [c["start_entry"] for c in cycle_with_points if c["yaw_jump_max_deg"] > 8.0]
+        if yaw_evidence:
+            anomalies.append(
+                {
+                    "rule": "yaw_jump_max_deg",
+                    "severity": "high",
+                    "category": "safety",
+                    "count": len(yaw_evidence),
+                    "detail": f"{len(yaw_evidence)} cycles with yaw_jump_max_deg > 8.",
+                    "evidence": evidence(yaw_evidence),
+                }
+            )
+
+        curv_evidence = [
+            c["start_entry"]
+            for c in cycle_with_points
+            if c["curv_abs_max"] > 0.10 or c["curv_delta_max"] > 0.03
+        ]
+        if curv_evidence:
+            anomalies.append(
+                {
+                    "rule": "curvature_limits",
+                    "severity": "high",
+                    "category": "safety",
+                    "count": len(curv_evidence),
+                    "detail": (
+                        f"{len(curv_evidence)} cycles violate curvature limit "
+                        "(|curv|>0.10 or delta>0.03)."
+                    ),
+                    "evidence": evidence(curv_evidence),
+                }
+            )
+
+        longest_replan_streak = 0
+        streak = 0
+        streak_end = -1
+        for i, c in enumerate(cycles):
+            if c["replan"] == 1:
+                streak += 1
+                if streak > longest_replan_streak:
+                    longest_replan_streak = streak
+                    streak_end = i
+            else:
+                streak = 0
+        if longest_replan_streak >= 3:
+            start = streak_end - longest_replan_streak + 1
+            streak_evidence = [cycles[i]["start_entry"] for i in range(start, streak_end + 1)]
+            anomalies.append(
+                {
+                    "rule": "replan_streak",
+                    "severity": "high",
+                    "category": "stability",
+                    "count": longest_replan_streak,
+                    "detail": f"Consecutive Replan=1 streak detected: {longest_replan_streak} cycles.",
+                    "evidence": evidence(streak_evidence),
+                }
+            )
+
+        collision_fail_entries = [
+            ev
+            for c in cycles
+            for ev in c["collision_evidence"]
+            if "fail" in ev["message"].lower()
+        ]
+        if collision_fail_entries:
+            anomalies.append(
+                {
+                    "rule": "collision_check_fail",
+                    "severity": "high",
+                    "category": "safety",
+                    "count": len(collision_fail_entries),
+                    "detail": f"{len(collision_fail_entries)} collision check failure logs found.",
+                    "evidence": evidence(collision_fail_entries),
+                }
+            )
+
+        safety_risk = 0.0
+        stability_risk = 0.0
+        if yaw_evidence:
+            safety_risk += 30.0
+        if curv_evidence:
+            safety_risk += 30.0
+        if low_path_evidence:
+            safety_risk += min(20.0, len(low_path_evidence) * 5.0)
+        if collision_fail_entries:
+            safety_risk += min(40.0, len(collision_fail_entries) * 10.0)
+
+        if jitter_count > 0:
+            stability_risk += (jitter_count / max(1, len(timer_intervals_ms))) * 35.0
+        if fork_high:
+            stability_risk += min(35.0, len(fork_high) * 8.0)
+        elif fork_medium:
+            stability_risk += min(20.0, len(fork_medium) * 4.0)
+        if longest_replan_streak >= 3:
+            stability_risk += 25.0
+            safety_risk += 10.0
+        if not timer_intervals_ms:
+            stability_risk += 10.0
+
+        safety_risk = self._clip(safety_risk, 0.0, 100.0)
+        stability_risk = self._clip(stability_risk, 0.0, 100.0)
+
+        if focus == "safety":
+            score = safety_risk
+        elif focus == "stability":
+            score = stability_risk
+        else:
+            score = (0.6 * safety_risk) + (0.4 * stability_risk)
+        score = round(self._clip(score, 0.0, 100.0), 1)
+
+        anomalies_sorted = sorted(
+            anomalies,
+            key=lambda x: (self._severity_rank(x["severity"]), x.get("count", 0)),
+            reverse=True,
+        )
+
+        high_count = sum(1 for a in anomalies_sorted if a["severity"] == "high")
+        if high_count >= 3:
+            score = max(score, 75.0)
+        elif high_count >= 1:
+            score = max(score, 45.0)
+
+        if score >= 70:
+            risk_level = "high"
+        elif score >= 40:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        summary = (
+            f"Analyzed {len(lines)} lines in {len(cycles)} planning cycles. "
+            f"Risk={risk_level} ({score}/100), high anomalies={high_count}."
+        )
+
+        cycle_replan_flags = [c["replan"] for c in cycles if c["replan"] is not None]
+        replan_ratio = (
+            round(sum(cycle_replan_flags) / len(cycle_replan_flags), 3)
+            if cycle_replan_flags
+            else 0.0
+        )
+
+        def downsample_points(points: list[dict[str, Any]], max_points: int = 220) -> list[list[float]]:
+            if not points:
+                return []
+            if len(points) <= max_points:
+                return [[round(p["x_mm"] / 1000.0, 3), round(p["y_mm"] / 1000.0, 3)] for p in points]
+            result = []
+            for i in range(max_points):
+                pos = round(i * (len(points) - 1) / (max_points - 1))
+                p = points[int(pos)]
+                result.append([round(p["x_mm"] / 1000.0, 3), round(p["y_mm"] / 1000.0, 3)])
+            return result
+
+        def cycle_alert_score(c: dict[str, Any]) -> int:
+            score_c = 0
+            if c["yaw_jump_max_deg"] > 8.0:
+                score_c += 2
+            if c["curv_abs_max"] > 0.10 or c["curv_delta_max"] > 0.03:
+                score_c += 2
+            if c.get("replan") == 1:
+                score_c += 1
+            if c["path_length_m"] < 2.0:
+                score_c += 1
+            return score_c
+
+        ranked_cycles = sorted(
+            cycle_with_points,
+            key=lambda c: (
+                cycle_alert_score(c),
+                c["curv_abs_max"],
+                c["yaw_jump_max_deg"],
+                c["path_length_m"],
+            ),
+            reverse=True,
+        )
+        selected_cycles: list[dict[str, Any]] = []
+        selected_ids: set[int] = set()
+        for c in ranked_cycles[:10]:
+            cid = int(c["index"])
+            selected_cycles.append(c)
+            selected_ids.add(cid)
+        for c in cycle_with_points[:5]:
+            cid = int(c["index"])
+            if cid in selected_ids:
+                continue
+            selected_cycles.append(c)
+            selected_ids.add(cid)
+            if len(selected_cycles) >= 14:
+                break
+
+        trajectory_preview = []
+        for c in selected_cycles[:14]:
+            points_sorted = [c["points"][i] for i in sorted(c["points"])]
+            alert_score = cycle_alert_score(c)
+            if alert_score >= 3:
+                risk_tag = "high"
+            elif alert_score >= 1:
+                risk_tag = "medium"
+            else:
+                risk_tag = "normal"
+            trajectory_preview.append(
+                {
+                    "cycle_index": c["index"],
+                    "timestamp": c["start_entry"]["timestamp_raw"],
+                    "point_count": c["point_count"],
+                    "path_length_m": round(c["path_length_m"], 3),
+                    "yaw_jump_max_deg": round(c["yaw_jump_max_deg"], 3),
+                    "curv_abs_max": round(c["curv_abs_max"], 5),
+                    "risk_tag": risk_tag,
+                    "alert_score": alert_score,
+                    "points_xy_m": downsample_points(points_sorted),
+                }
+            )
+
+        key_metrics = {
+            "line_count": len(lines),
+            "parsed_line_count": parsed_lines,
+            "cycle_count": len(cycles),
+            "cycle_with_points_count": len(cycle_with_points),
+            "trajectory_preview_count": len(trajectory_preview),
+            "level_counts": dict(level_counts),
+            "top_modules": [
+                {"module": name, "count": count}
+                for name, count in module_counts.most_common(12)
+            ],
+            "timer_interval_ms": self._stats(timer_intervals_ms, ndigits=2),
+            "timer_jitter_count": jitter_count,
+            "fork_star_time_ms": self._stats([float(v) for v in fork_times], ndigits=2),
+            "replan_ratio": replan_ratio,
+            "longest_replan_streak": longest_replan_streak,
+            "path_size": self._stats([float(v) for v in path_sizes], ndigits=2),
+            "trajectory_segments": self._stats([float(v) for v in traj_segments], ndigits=2),
+            "geometry": {
+                "point_count": self._stats([float(v) for v in point_counts], ndigits=2),
+                "path_length_m": self._stats(path_lengths, ndigits=3),
+                "yaw_jump_max_deg": self._stats(yaw_jumps, ndigits=3),
+                "curv_abs_max": self._stats(curv_abs, ndigits=5),
+                "curv_delta_max": self._stats(curv_delta, ndigits=5),
+            },
+            "risk_breakdown": {
+                "focus": focus,
+                "safety_risk_0_to_100": round(safety_risk, 1),
+                "stability_risk_0_to_100": round(stability_risk, 1),
+            },
+        }
+
+        report_path: str | None = None
+        dashboard_path: str | None = None
+        full_report = {
+            "summary": summary,
+            "risk_level": risk_level,
+            "score_0_to_100": score,
+            "focus": focus,
+            "input": {
+                "log_path": str(log_path),
+                "analyzed_lines": len(lines),
+                "total_lines": total_lines,
+                "null_bytes_removed": null_byte_count,
+            },
+            "key_metrics": key_metrics,
+            "top_anomalies": anomalies_sorted,
+            "parse_warnings": parse_warnings,
+            "trajectory_preview": trajectory_preview,
+            "cycle_metrics_preview": [
+                {
+                    "cycle_index": c["index"],
+                    "timestamp": c["start_entry"]["timestamp_raw"],
+                    "point_count": c["point_count"],
+                    "path_length_m": round(c["path_length_m"], 3),
+                    "yaw_jump_max_deg": round(c["yaw_jump_max_deg"], 3),
+                    "curv_abs_max": round(c["curv_abs_max"], 5),
+                    "curv_delta_max": round(c["curv_delta_max"], 5),
+                    "replan": c["replan"],
+                    "fork_star_time_ms": c["fork_times"][0] if c["fork_times"] else None,
+                    "path_size": c["path_sizes"][0] if c["path_sizes"] else None,
+                }
+                for c in cycles[:120]
+            ],
+        }
+
+        if save_report:
+            try:
+                report_dir.mkdir(parents=True, exist_ok=True)
+                out_name = f"{log_path.name}.analysis.json"
+                out_path = report_dir / out_name
+                out_path.write_text(json.dumps(full_report, ensure_ascii=False, indent=2), encoding="utf-8")
+                report_path = str(out_path)
+
+                if generate_dashboard:
+                    html = self._build_dashboard_html(
+                        log_path=log_path,
+                        summary=summary,
+                        risk_level=risk_level,
+                        score=score,
+                        key_metrics=key_metrics,
+                        anomalies=anomalies_sorted,
+                        timer_intervals_ms=timer_intervals_ms,
+                        fork_times=fork_times,
+                        cycle_preview=full_report["cycle_metrics_preview"],
+                        trajectory_preview=trajectory_preview,
+                    )
+                    dashboard_file = report_dir / f"{log_path.name}.analysis.html"
+                    dashboard_file.write_text(html, encoding="utf-8")
+                    dashboard_path = str(dashboard_file)
+            except Exception as e:
+                parse_warnings.append(f"Failed to write report file: {e}")
+
+        payload = {
+            "summary": summary,
+            "risk_level": risk_level,
+            "score_0_to_100": score,
+            "key_metrics": key_metrics,
+            "top_anomalies": anomalies_sorted,
+            "report_path": report_path,
+            "dashboard_path": dashboard_path,
+            "parse_warnings": parse_warnings,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 class ToolRegistry:
