@@ -202,10 +202,27 @@ def test_root_cli_analyze_log_generates_dashboard_and_visualizations(monkeypatch
 
     assert exit_code == 0
     assert payload["dashboard_path"] is not None
+    assert payload["report_path"] is not None
     assert Path(payload["dashboard_path"]).exists()
+    assert payload["module_diagnosis"]["primary_module"] in {"planning", "localization", "perception", "unknown"}
+    assert isinstance(payload["module_signals"], list)
     assert payload["visualizations"]["process_replay"]["enabled"] is True
     assert payload["visualizations"]["gridmap_view"]["enabled"] is True
     assert payload["visualizations"]["planner_inputs_csv_resolved"] == str((tmp_path / "planner_inputs.csv").resolve())
+    report_obj = json.loads(Path(payload["report_path"]).read_text(encoding="utf-8"))
+    preview = report_obj["dashboard_data_preview"]
+    assert "analysisOverview" in preview
+    assert "riskDrivers" in preview
+    assert "sourceCoverage" in preview
+    assert "cycleDiagnostics" in preview
+    assert "moduleDiagnosis" in preview
+    assert "moduleSignals" in preview
+    html = Path(payload["dashboard_path"]).read_text(encoding="utf-8")
+    assert "Module Diagnosis" in html
+    assert "Risk Breakdown" in html
+    assert "Cycle Diagnostics" in html
+    assert "sourceCoverageList" in html
+    assert "cycleTable" in html
 
 
 def test_root_cli_batch_analyze_logs_defaults_summary_to_log_dir_reports(monkeypatch, tmp_path, capsys):
@@ -230,6 +247,33 @@ def test_root_cli_batch_analyze_logs_defaults_summary_to_log_dir_reports(monkeyp
     assert exit_code == 0
     assert payload["summary_path"] is not None
     assert Path(payload["summary_path"]).parent == log_dir / "reports"
+
+
+def test_root_cli_analyze_log_auto_resolves_missing_directory_hint_and_merges_logs(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("mini_nanobot.cli._analysis_workspace", lambda: tmp_path)
+    base = datetime(2026, 3, 4, 16, 41, 49)
+    log_dir = tmp_path / "Downloads" / "j6b_0305"
+    log_dir.mkdir(parents=True)
+    log_a = log_dir / "planning.log.20260305110616"
+    log_b = log_dir / "planning.log.20260305110632"
+    _write_log(log_a, _cycle_lines(base, 0) + _cycle_lines(base, 100))
+    _write_log(log_b, _cycle_lines(base, 200) + _cycle_lines(base, 300))
+
+    exit_code = mini_main(
+        [
+            "analyze-log",
+            "--log-path",
+            str(tmp_path / "Downloads" / "Jj6b_0305"),
+            "--no-save-report",
+            "--no-dashboard",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["resolved_log_paths"] == [str(log_a.resolve()), str(log_b.resolve())]
+    assert payload["key_metrics"]["cycle_count"] == 4
+    assert any("auto-resolved to directory" in warning for warning in payload["parse_warnings"])
 
 
 def test_parking_judge_cli_alias_runs_same_analysis_entrypoint(monkeypatch, tmp_path, capsys):

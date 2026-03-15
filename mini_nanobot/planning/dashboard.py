@@ -157,12 +157,28 @@ def build_dashboard_html(
       font-size: 14px;
       color: #143257;
     }
+    .hero-stats {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .hero-pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid #d7e8fb;
+      background: rgba(255, 255, 255, 0.72);
+      color: #355375;
+      font-size: 12px;
+      font-weight: 600;
+    }
     .hero-side {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
       gap: 10px;
       justify-content: flex-start;
+      min-width: min(300px, 100%);
     }
     .risk-chip {
       padding: 10px 16px;
@@ -195,6 +211,40 @@ def build_dashboard_html(
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
+    .score-split {
+      display: grid;
+      gap: 10px;
+      width: 100%;
+    }
+    .split-card {
+      border-radius: 14px;
+      border: 1px solid #d9e7f8;
+      background: rgba(255, 255, 255, 0.84);
+      padding: 10px 12px;
+    }
+    .split-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      color: #395778;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .split-track {
+      margin-top: 8px;
+      height: 9px;
+      border-radius: 999px;
+      background: #e8f1fb;
+      overflow: hidden;
+    }
+    .split-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0f7dcf, #29a08b);
+    }
+    .split-fill.safety { background: linear-gradient(90deg, #e39328, #d43f3a); }
+    .split-fill.stability { background: linear-gradient(90deg, #0f7dcf, #169f86); }
     .risk-high { background: linear-gradient(135deg, #c7362f, #e35149); }
     .risk-medium { background: linear-gradient(135deg, #cf7a05, #ec9b17); }
     .risk-low { background: linear-gradient(135deg, #0e8a64, #14aa7c); }
@@ -256,6 +306,178 @@ def build_dashboard_html(
       background: rgba(255, 255, 255, 0.17);
       top: -56px;
       right: -42px;
+    }
+    .insight-grid {
+      margin-top: 14px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+    .insight-card {
+      padding: 16px 16px 15px;
+    }
+    .insight-card.wide { grid-column: span 7; }
+    .insight-card.narrow { grid-column: span 5; }
+    .breakdown-bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .metric-bar .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #395778;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .metric-track {
+      margin-top: 8px;
+      height: 10px;
+      border-radius: 999px;
+      background: #edf4fd;
+      overflow: hidden;
+    }
+    .metric-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0f7dcf, #29a08b);
+    }
+    .metric-fill.warn { background: linear-gradient(90deg, #f0a133, #d43f3a); }
+    .meta-inline {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid #d7e8fb;
+      background: #f4f8fe;
+      color: #32506f;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-high {
+      color: #9b2d27;
+      background: #fff2ef;
+      border-color: #f4c7bf;
+    }
+    .badge-medium {
+      color: #8a5a08;
+      background: #fff7e8;
+      border-color: #f4ddb2;
+    }
+    .badge-low, .badge-normal {
+      color: #1f6950;
+      background: #edf9f4;
+      border-color: #cfeada;
+    }
+    .driver-list, .source-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .driver-item, .source-item {
+      padding: 11px 12px;
+      border-radius: 14px;
+      border: 1px solid #deebf8;
+      background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(244,249,255,0.92));
+    }
+    .driver-head, .source-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .driver-title, .source-title {
+      color: #12355a;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    .driver-copy, .source-copy {
+      margin-top: 8px;
+      color: #56708f;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .module-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .module-chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid #d8e7f8;
+      background: #f7fbff;
+      color: #395778;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .module-diagnosis-panel {
+      display: grid;
+      gap: 14px;
+      margin-top: 12px;
+    }
+    .module-diagnosis-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .module-diagnosis-copy {
+      color: #56708f;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .module-score-list {
+      display: grid;
+      gap: 10px;
+    }
+    .module-score-row .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #395778;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .module-score-track {
+      margin-top: 8px;
+      height: 10px;
+      border-radius: 999px;
+      background: #edf4fd;
+      overflow: hidden;
+    }
+    .module-score-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0f7dcf, #29a08b);
+    }
+    .module-score-fill.planning { background: linear-gradient(90deg, #f0a133, #d43f3a); }
+    .module-score-fill.localization { background: linear-gradient(90deg, #0f7dcf, #1f9ecf); }
+    .module-score-fill.perception { background: linear-gradient(90deg, #169f86, #39b87a); }
+    .limitation-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .limitation-item {
+      padding: 9px 10px;
+      border-radius: 12px;
+      border: 1px solid #dde9f7;
+      background: rgba(248, 251, 255, 0.88);
+      color: #60748f;
+      font-size: 12px;
+      line-height: 1.5;
     }
     .chart-grid {
       margin-top: 14px;
@@ -327,6 +549,13 @@ def build_dashboard_html(
       gap: 10px;
       margin-bottom: 10px;
     }
+    .source-summary {
+      margin: -2px 0 12px;
+      color: #60748f;
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
     .toolbar .left, .section-toolbar .left {
       display: inline-flex;
       align-items: center;
@@ -394,6 +623,65 @@ def build_dashboard_html(
       border: 1px solid #d7e8fb;
     }
     .toggle-list input { margin: 0; }
+    .layer-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .layer-pill {
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid #d7e8fb;
+      background: rgba(237, 245, 255, 0.8);
+      color: #355375;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .cycle-table-wrap {
+      overflow-x: auto;
+    }
+    .cycle-strip {
+      margin: 12px 0 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+      gap: 8px;
+    }
+    .cycle-chip {
+      padding: 10px 10px 9px;
+      border-radius: 14px;
+      border: 1px solid #dbe8f8;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(245,250,255,0.92));
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+    }
+    .cycle-chip:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(17, 45, 89, 0.08);
+    }
+    .cycle-chip.active {
+      border-color: #7bb7ff;
+      box-shadow: 0 12px 24px rgba(17, 45, 89, 0.12);
+      background: linear-gradient(180deg, #ffffff, #edf6ff);
+    }
+    .cycle-chip .idx {
+      color: #102c4d;
+      font-family: "Sora", sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .cycle-chip .score {
+      margin-top: 6px;
+      color: #355375;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .cycle-chip .meta {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #67809f;
+      word-break: break-word;
+    }
     .status-grid {
       display: grid;
       gap: 10px;
@@ -479,9 +767,18 @@ def build_dashboard_html(
       font-weight: 700;
     }
     tr:hover td { background: #f8fbff; }
+    tbody tr.is-active td { background: #eef6ff; }
+    #cycleTable tbody tr { cursor: pointer; }
     .sev-high { color: var(--high); font-weight: 700; }
     .sev-medium { color: var(--mid); font-weight: 700; }
     .sev-low { color: var(--low); font-weight: 700; }
+    .table-note {
+      display: block;
+      margin-top: 4px;
+      color: #70849d;
+      font-size: 11px;
+      line-height: 1.45;
+    }
     .meta-grid {
       display: grid;
       gap: 10px;
@@ -529,6 +826,7 @@ def build_dashboard_html(
     @media (max-width: 1120px) {
       .kpi { grid-column: span 4; }
       .kpi.primary { grid-column: span 12; }
+      .insight-card.wide, .insight-card.narrow { grid-column: span 12; }
       .status-grid, .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       #processReplayBody { grid-template-columns: 1fr; }
       #processStatusGrid { grid-column: 1; grid-row: auto; margin: 12px 0 0; }
@@ -541,6 +839,7 @@ def build_dashboard_html(
         gap: 14px;
       }
       .hero-side { align-items: flex-start; }
+      .score-split { max-width: 340px; }
       .kpi { grid-column: span 6; }
       .card { grid-column: span 12; }
       #trajectoryCanvas { height: 360px; }
@@ -558,6 +857,7 @@ def build_dashboard_html(
       .summary { font-size: 13px; }
       .legend, .toggle-list { gap: 9px; }
       .status-grid, .meta-grid { grid-template-columns: 1fr; }
+      .cycle-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   </style>
 </head>
@@ -572,6 +872,7 @@ def build_dashboard_html(
         <h1>Planning Log Dashboard</h1>
         <div class="meta mono">__LOG_PATH__</div>
         <p class="summary">__SUMMARY__</p>
+        <div id="heroStats" class="hero-stats"></div>
       </div>
       <div class="hero-side">
         <div class="risk-chip __RISK_CLASS__">Risk: __RISK_LEVEL__</div>
@@ -579,6 +880,7 @@ def build_dashboard_html(
           <div class="v">__SCORE__</div>
           <div class="k">Composite Score</div>
         </div>
+        <div id="heroRiskSplit" class="score-split"></div>
       </div>
     </section>
     <div id="vizWarnings"></div>
@@ -588,31 +890,63 @@ def build_dashboard_html(
       <div class="kpi card-shell" style="--d:3"><div class="label">Parsed Lines</div><div class="val">__PARSED_LINES__</div><div class="sub">total: __LINE_COUNT__</div></div>
       <div class="kpi card-shell" style="--d:4"><div class="label">Timer Jitter</div><div class="val">__TIMER_JITTER__</div><div class="sub">out of __TIMER_RANGE__ ms</div></div>
       <div class="kpi card-shell" style="--d:5"><div class="label">Replan Ratio</div><div class="val">__REPLAN_RATIO__</div><div class="sub">longest streak: __REPLAN_STREAK__</div></div>
-      <div class="kpi card-shell" style="--d:6"><div class="label">Top Severity</div><div class="val">__HIGH_ANOMALY_COUNT__</div><div class="sub">high anomalies</div></div>
+      <div class="kpi card-shell" style="--d:6"><div class="label">Source Logs</div><div class="val">__LOG_COUNT__</div><div class="sub">warnings: __WARNING_COUNT__</div></div>
+    </section>
+    <section class="insight-grid">
+      <div class="insight-card card-shell wide" style="--d:7">
+        <h3>Risk Breakdown</h3>
+        <div class="hint">Break the current verdict into safety, stability, and the strongest contributing drivers.</div>
+        <div id="riskBreakdownPanel"></div>
+        <div id="riskDriverList" class="driver-list"></div>
+        <div id="topModuleList" class="module-list"></div>
+      </div>
+      <div class="insight-card card-shell narrow" style="--d:8">
+        <h3>Analysis Coverage</h3>
+        <div class="hint">Source logs, parse quality, replay coverage, and time window covered by this report.</div>
+        <div id="sourceOverviewList" class="source-list"></div>
+        <div id="sourceCoverageList" class="source-list"></div>
+      </div>
+    </section>
+    <section class="section-card card-shell" style="--d:8">
+      <h3>Module Diagnosis</h3>
+      <div class="hint">Heuristic attribution across planning, localization, and perception using planning.log replay evidence.</div>
+      <div id="moduleDiagnosisPanel"></div>
+      <div id="moduleSignalList" class="driver-list"></div>
     </section>
     <section class="chart-grid">
-      <div class="card card-shell" style="--d:7">
+      <div class="card card-shell" style="--d:9">
         <h3>Timer Interval (ms)</h3>
         <div class="hint">Planner loop interval trend with guard rails at __TIMER_RANGE__ ms.</div>
         <canvas id="timerChart"></canvas>
       </div>
-      <div class="card card-shell" style="--d:8">
+      <div class="card card-shell" style="--d:10">
         <h3>Fork Star Used Time (ms)</h3>
         <div class="hint">Runtime load profile across planning cycles.</div>
         <canvas id="forkChart"></canvas>
       </div>
-      <div class="card card-shell" style="--d:9">
+      <div class="card card-shell" style="--d:11">
         <h3>Yaw Jump Max per Cycle (deg)</h3>
         <div class="hint">Steering continuity risk view with __YAW_LIMIT__ deg threshold.</div>
         <canvas id="yawChart"></canvas>
       </div>
-      <div class="card card-shell" style="--d:10">
-        <h3>Path Length / Curvature Blend</h3>
-        <div class="hint">Composite trend for route scale and curvature intensity.</div>
+      <div class="card card-shell" style="--d:12">
+        <h3>Cycle Alert Score</h3>
+        <div class="hint">Representative cycle ranking derived from threshold hits and replan activity.</div>
         <canvas id="pathChart"></canvas>
       </div>
     </section>
-    <section class="trajectory-card card-shell" style="--d:11">
+    <section class="section-card card-shell" style="--d:13">
+      <h3>Cycle Diagnostics</h3>
+      <div class="hint">Representative cycles ranked by alert score. Selecting a cycle syncs with the trajectory map below.</div>
+      <div id="cycleStrip" class="cycle-strip"></div>
+      <div class="cycle-table-wrap">
+        <table id="cycleTable">
+          <thead><tr><th>Cycle</th><th>Source</th><th>Timestamp</th><th>Alert</th><th>Issues</th><th>Timer</th><th>Fork</th><th>Yaw</th><th>Curv</th><th>Path</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="trajectory-card card-shell" style="--d:14">
       <h3>Output Trajectory Map</h3>
       <div class="toolbar">
         <div class="left">
@@ -629,7 +963,7 @@ def build_dashboard_html(
       </div>
       <canvas id="trajectoryCanvas"></canvas>
     </section>
-    <section class="section-card card-shell" style="--d:12">
+    <section class="section-card card-shell" style="--d:15">
       <h3>Planning Process Replay</h3>
       <div class="hint">Frame-level replay ported from <span class="mono">plotlog_0305.py</span>, rendered as self-contained HTML.</div>
       <div class="section-toolbar">
@@ -646,13 +980,9 @@ def build_dashboard_html(
             <option value="4">4x</option>
           </select>
         </div>
-        <div class="toggle-list">
-          <label><input id="processShowTrajectory" type="checkbox" checked />trajectory</label>
-          <label><input id="processShowSlot" type="checkbox" checked />slot</label>
-          <label><input id="processShowVehicle" type="checkbox" checked />vehicle</label>
-          <label><input id="processShowTargets" type="checkbox" checked />targets</label>
-        </div>
+        <div id="processLayerLegend" class="layer-pills"></div>
       </div>
+      <div id="processReplaySources" class="source-summary mono"></div>
       <div id="processReplayEmpty" class="empty-note" style="display:none"></div>
       <div id="processReplayBody">
         <div class="status-grid" id="processStatusGrid"></div>
@@ -660,7 +990,7 @@ def build_dashboard_html(
         <div class="boundary-banner" id="processReplayBoundary"></div>
       </div>
     </section>
-    <section class="section-card card-shell" style="--d:13">
+    <section class="section-card card-shell" style="--d:16">
       <h3>Planner Inputs GridMap</h3>
       <div class="hint">Occupancy grid and planner inputs ported from <span class="mono">gridmap_editor_with_base.py</span>.</div>
       <div class="section-toolbar">
@@ -668,15 +998,8 @@ def build_dashboard_html(
           <label for="gridFrameSelect">Frame</label>
           <select id="gridFrameSelect"></select>
           <span id="gridFrameLabel" class="pill">frame 0 / 0</span>
-          <label for="gridAlphaRange">Grid alpha</label>
-          <input id="gridAlphaRange" type="range" min="20" max="100" value="84" />
         </div>
-        <div class="toggle-list">
-          <label><input id="gridShowTrajectory" type="checkbox" checked />trajectory</label>
-          <label><input id="gridShowSlot" type="checkbox" checked />slot</label>
-          <label><input id="gridShowBase" type="checkbox" checked />base polygon</label>
-          <label><input id="gridShowPoses" type="checkbox" checked />ego / target</label>
-        </div>
+        <div id="gridLayerLegend" class="layer-pills"></div>
       </div>
       <div id="gridMapEmpty" class="empty-note" style="display:none"></div>
       <div id="gridMapBody">
@@ -684,16 +1007,17 @@ def build_dashboard_html(
         <div class="meta-grid" id="gridMapMeta"></div>
       </div>
     </section>
-    <section class="full card-shell" style="--d:14">
+    <section class="full card-shell" style="--d:17">
       <h3>Top Anomalies</h3>
       <table id="anomalyTable">
-        <thead><tr><th>Rule</th><th>Severity</th><th>Count</th><th>Detail</th></tr></thead>
+        <thead><tr><th>Rule</th><th>Category</th><th>Severity</th><th>Count</th><th>Evidence</th><th>Detail</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
   </div>
 <script>
 const data = __DATA_JSON__;
+const dashboardState = { selectedCycleIndex: null };
 function yScale(min, max, h, pad) {
   return (v) => {
     if (max === min) return h / 2;
@@ -709,8 +1033,33 @@ function fmtNum(value, digits = 2) {
   const text = Number(value).toFixed(digits);
   return text.replace(/\\.0+$/, "").replace(/(\\.\\d*?)0+$/, "$1");
 }
+function fmtPercent(value, digits = 1) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return `${fmtNum(Number(value) * 100, digits)}%`;
+}
+function fmtDurationSeconds(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  const seconds = Number(value);
+  if (seconds >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds - minutes * 60;
+    return `${minutes}m ${fmtNum(rest, 1)}s`;
+  }
+  return `${fmtNum(seconds, 1)}s`;
+}
 function htmlEscape(value) {
   return safeText(value, "").replace(/[&<>"]/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch] || ch));
+}
+function badgeClass(level) {
+  if (level === "high") return "badge badge-high";
+  if (level === "medium") return "badge badge-medium";
+  if (level === "low" || level === "normal") return "badge badge-low";
+  return "badge";
+}
+function riskClass(score) {
+  if (Number(score) >= 70) return "high";
+  if (Number(score) >= 40) return "medium";
+  return "low";
 }
 function setupHiDPI(canvas) {
   const ctx = canvas.getContext("2d");
@@ -835,6 +1184,235 @@ function drawBars(canvasId, values, color) {
     ctx.closePath();
     ctx.fill();
   });
+}
+function renderHeroStats() {
+  const host = document.getElementById("heroStats");
+  const overview = data.analysisOverview || {};
+  const viz = overview.visualization_summary || {};
+  const pills = [
+    `${safeText(overview.log_count, 0)} log(s)`,
+    `${safeText(data.visualizations && data.visualizations.process_replay && data.visualizations.process_replay.frame_count, viz.process_replay_frames || 0)} replay frames`,
+    `${safeText(data.visualizations && data.visualizations.gridmap_view && data.visualizations.gridmap_view.frame_count, viz.gridmap_frames || 0)} grid frames`,
+    `${fmtPercent(overview.parsed_line_ratio || 0, 1)} parsed`,
+    `${safeText(overview.warning_count, 0)} warnings`,
+    `${fmtDurationSeconds(overview.analysis_duration_s || 0)} window`,
+  ];
+  host.innerHTML = pills.map((item) => `<span class="hero-pill">${htmlEscape(item)}</span>`).join("");
+}
+function renderHeroRiskSplit() {
+  const host = document.getElementById("heroRiskSplit");
+  const breakdown = (data.analysisOverview && data.analysisOverview.risk_breakdown) || {};
+  const items = [
+    { label: "Safety", value: Number(breakdown.safety_risk_0_to_100 || 0), cls: "safety" },
+    { label: "Stability", value: Number(breakdown.stability_risk_0_to_100 || 0), cls: "stability" },
+  ];
+  host.innerHTML = items.map((item) => `
+    <div class="split-card">
+      <div class="split-head"><span>${htmlEscape(item.label)}</span><span>${htmlEscape(fmtNum(item.value, 1))}</span></div>
+      <div class="split-track"><div class="split-fill ${item.cls}" style="width:${Math.max(0, Math.min(item.value, 100))}%"></div></div>
+    </div>
+  `).join("");
+}
+function renderRiskPanels() {
+  const host = document.getElementById("riskBreakdownPanel");
+  const breakdown = (data.analysisOverview && data.analysisOverview.risk_breakdown) || {};
+  const severity = (data.analysisOverview && data.analysisOverview.severity_counts) || {};
+  const bars = [
+    { label: "Composite", value: Number(breakdown.score_0_to_100 || 0), cls: riskClass(breakdown.score_0_to_100 || 0) === "low" ? "" : "warn" },
+    { label: "Safety", value: Number(breakdown.safety_risk_0_to_100 || 0), cls: "warn" },
+    { label: "Stability", value: Number(breakdown.stability_risk_0_to_100 || 0), cls: "" },
+  ];
+  host.innerHTML = `
+    <div class="breakdown-bars">
+      ${bars.map((item) => `
+        <div class="metric-bar">
+          <div class="row"><span>${htmlEscape(item.label)}</span><span>${htmlEscape(fmtNum(item.value, 1))} / 100</span></div>
+          <div class="metric-track"><div class="metric-fill ${item.cls}" style="width:${Math.max(0, Math.min(item.value, 100))}%"></div></div>
+        </div>
+      `).join("")}
+    </div>
+    <div class="meta-inline">
+      <span class="${badgeClass("high")}">high ${htmlEscape(severity.high || 0)}</span>
+      <span class="${badgeClass("medium")}">medium ${htmlEscape(severity.medium || 0)}</span>
+      <span class="${badgeClass("low")}">low ${htmlEscape(severity.low || 0)}</span>
+      <span class="badge">focus ${htmlEscape(breakdown.focus || "-")}</span>
+    </div>
+  `;
+}
+function renderRiskDrivers() {
+  const host = document.getElementById("riskDriverList");
+  const drivers = data.riskDrivers || [];
+  if (!drivers.length) {
+    host.innerHTML = `<div class="driver-item"><div class="driver-title">No anomaly drivers were triggered.</div><div class="driver-copy">Current score is driven by baseline stability assumptions rather than explicit rule violations.</div></div>`;
+    return;
+  }
+  host.innerHTML = drivers.slice(0, 4).map((driver) => {
+    const sample = driver.sample || {};
+    const sampleText = sample.source_log ? `${safeText(sample.source_log)}:${safeText(sample.line_no)}` : safeText(sample.timestamp, "");
+    return `
+      <div class="driver-item">
+        <div class="driver-head">
+          <div class="driver-title">${htmlEscape(driver.rule || "-")}</div>
+          <span class="${badgeClass(driver.severity || "low")}">${htmlEscape(driver.severity || "-")}</span>
+        </div>
+        <div class="meta-inline">
+          <span class="badge">${htmlEscape(driver.category || "uncategorized")}</span>
+          <span class="badge">count ${htmlEscape(driver.count ?? 0)}</span>
+          <span class="badge">evidence ${htmlEscape(driver.evidence_count ?? 0)}</span>
+        </div>
+        <div class="driver-copy">${htmlEscape(driver.detail || "-")}${sampleText ? ` Sample: ${htmlEscape(sampleText)}` : ""}</div>
+      </div>
+    `;
+  }).join("");
+}
+function renderTopModules() {
+  const host = document.getElementById("topModuleList");
+  const modules = data.topModules || [];
+  host.innerHTML = modules.length
+    ? modules.map((item) => `<span class="module-chip">${htmlEscape(item.module || "-")} · ${htmlEscape(item.count ?? 0)}</span>`).join("")
+    : `<span class="module-chip">No module stats</span>`;
+}
+function renderModuleDiagnosis() {
+  const host = document.getElementById("moduleDiagnosisPanel");
+  const signalHost = document.getElementById("moduleSignalList");
+  const diagnosis = data.moduleDiagnosis || {};
+  const allSignals = data.moduleSignals || [];
+  const scores = diagnosis.module_scores || {};
+  const modules = ["planning", "localization", "perception"].map((module) => ({
+    module,
+    value: Number(scores[module] || 0),
+  }));
+  const maxScore = Math.max(...modules.map((item) => item.value), 1);
+  const confidence = Number(diagnosis.confidence_0_to_1 || 0);
+  const limitations = diagnosis.limitations || [];
+  host.innerHTML = `
+    <div class="module-diagnosis-panel">
+      <div class="module-diagnosis-head">
+        <div>
+          <div class="driver-title">Primary Module: ${htmlEscape(diagnosis.primary_module || "unknown")}</div>
+          <div class="module-diagnosis-copy">${htmlEscape(diagnosis.reason || "Evidence is insufficient to assign a primary module.")}</div>
+        </div>
+        <div class="meta-inline">
+          <span class="badge">confidence ${htmlEscape(fmtNum(confidence, 2))}</span>
+        </div>
+      </div>
+      <div class="module-score-list">
+        ${modules.map((item) => `
+          <div class="module-score-row">
+            <div class="row"><span>${htmlEscape(item.module)}</span><span>${htmlEscape(fmtNum(item.value, 0))}</span></div>
+            <div class="module-score-track"><div class="module-score-fill ${htmlEscape(item.module)}" style="width:${Math.max(0, Math.min((item.value / maxScore) * 100, 100))}%"></div></div>
+          </div>
+        `).join("")}
+      </div>
+      ${limitations.length ? `
+        <div class="limitation-list">
+          ${limitations.map((item) => `<div class="limitation-item">${htmlEscape(item)}</div>`).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+  const evidence = (diagnosis.evidence && diagnosis.evidence.length ? diagnosis.evidence : allSignals).slice(0, 3);
+  if (!evidence.length) {
+    signalHost.innerHTML = `<div class="driver-item"><div class="driver-title">No module evidence</div><div class="driver-copy">The current report did not produce enough replay-based evidence to rank planning, localization, and perception separately.</div></div>`;
+    return;
+  }
+  signalHost.innerHTML = evidence.map((item) => {
+    const sample = item.sample || (item.evidence || [])[0] || {};
+    const sampleText = sample.source_log
+      ? `${safeText(sample.source_log)}${sample.line_no ? `:${safeText(sample.line_no)}` : ` frame ${safeText(sample.frame_index, "-")}`}`
+      : safeText(sample.detail, "");
+    return `
+      <div class="driver-item">
+        <div class="driver-head">
+          <div class="driver-title">${htmlEscape(item.signal || "module_signal")}</div>
+          <span class="badge">${htmlEscape(item.module || diagnosis.primary_module || "unknown")}</span>
+        </div>
+        <div class="meta-inline">
+          <span class="${badgeClass(item.severity || "low")}">${htmlEscape(item.severity || "-")}</span>
+          <span class="badge">evidence ${htmlEscape(item.evidence_count ?? ((item.evidence || []).length || 0))}</span>
+        </div>
+        <div class="driver-copy">${htmlEscape(item.detail || "-")}${sampleText ? ` Sample: ${htmlEscape(sampleText)}` : ""}</div>
+      </div>
+    `;
+  }).join("");
+}
+function renderSourceCoverage() {
+  const overviewHost = document.getElementById("sourceOverviewList");
+  const coverageHost = document.getElementById("sourceCoverageList");
+  const overview = data.analysisOverview || {};
+  const sources = data.sourceCoverage || [];
+  const viz = overview.visualization_summary || {};
+  const cards = [
+    { title: "Coverage Window", copy: `${safeText(overview.analysis_start)} -> ${safeText(overview.analysis_end)}` },
+    { title: "Parse Quality", copy: `${fmtPercent(overview.parsed_line_ratio || 0, 1)} of lines matched the expected format` },
+    { title: "Warnings", copy: `${safeText(overview.warning_count, 0)} parse or visualization note(s)` },
+    { title: "Visual Coverage", copy: `${safeText(viz.process_replay_frames, 0)} replay frame(s), ${safeText(viz.gridmap_frames, 0)} grid frame(s)` },
+  ];
+  overviewHost.innerHTML = cards.map((card) => `
+    <div class="source-item">
+      <div class="source-title">${htmlEscape(card.title)}</div>
+      <div class="source-copy">${htmlEscape(card.copy)}</div>
+    </div>
+  `).join("");
+  coverageHost.innerHTML = sources.length
+    ? sources.map((source) => `
+      <div class="source-item">
+        <div class="source-head">
+          <div class="source-title">${htmlEscape(source.name || source.path || "-")}</div>
+          <span class="badge">cycles ${htmlEscape(source.cycle_count ?? 0)}</span>
+        </div>
+        <div class="source-copy">${htmlEscape(source.first_timestamp || "-")} -> ${htmlEscape(source.last_timestamp || "-")} · trajectory cycles ${htmlEscape(source.trajectory_cycle_count ?? 0)} · span ${htmlEscape(source.first_cycle_index ?? "-")}-${htmlEscape(source.last_cycle_index ?? "-")}</div>
+      </div>
+    `).join("")
+    : `<div class="source-item"><div class="source-title">No source coverage details</div></div>`;
+}
+function renderLayerLegend(hostId, labels) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host.innerHTML = labels.map((label) => `<span class="layer-pill">${htmlEscape(label)}</span>`).join("");
+}
+function syncCycleDiagnosticsSelection(cycleIndex) {
+  document.querySelectorAll("#cycleStrip .cycle-chip").forEach((node) => {
+    node.classList.toggle("active", Number(node.getAttribute("data-cycle-index")) === Number(cycleIndex));
+  });
+  document.querySelectorAll("#cycleTable tbody tr").forEach((node) => {
+    node.classList.toggle("is-active", Number(node.getAttribute("data-cycle-index")) === Number(cycleIndex));
+  });
+}
+function renderCycleDiagnostics() {
+  const cycles = data.cycleDiagnostics || [];
+  const strip = document.getElementById("cycleStrip");
+  const tbody = document.querySelector("#cycleTable tbody");
+  if (!cycles.length) {
+    strip.innerHTML = `<div class="empty-note">Representative cycle diagnostics are unavailable.</div>`;
+    tbody.innerHTML = `<tr><td colspan="10">No cycle diagnostics</td></tr>`;
+    return;
+  }
+  strip.innerHTML = cycles.map((cycle) => `
+    <button type="button" class="cycle-chip" data-cycle-index="${cycle.cycle_index}">
+      <div class="idx">Cycle ${htmlEscape(cycle.cycle_index)}</div>
+      <div class="score">alert ${htmlEscape(cycle.alert_score ?? 0)} · ${htmlEscape(cycle.risk_tag || "normal")}</div>
+      <div class="meta">${htmlEscape((cycle.issues || []).join(", ") || "stable")}</div>
+    </button>
+  `).join("");
+  tbody.innerHTML = cycles.map((cycle) => `
+    <tr data-cycle-index="${cycle.cycle_index}">
+      <td><strong>${htmlEscape(cycle.cycle_index)}</strong><span class="table-note">line ${htmlEscape(cycle.line_no ?? "-")}</span></td>
+      <td>${htmlEscape(cycle.source_log_name || "-")}</td>
+      <td>${htmlEscape(cycle.timestamp || "-")}</td>
+      <td><span class="${badgeClass(cycle.risk_tag || "normal")}">${htmlEscape(cycle.alert_score ?? 0)}</span></td>
+      <td>${htmlEscape((cycle.issues || []).join(", ") || "stable")}</td>
+      <td>${cycle.timer_interval_ms === null || cycle.timer_interval_ms === undefined ? "-" : `${htmlEscape(fmtNum(cycle.timer_interval_ms, 1))} ms`}</td>
+      <td>${cycle.fork_star_time_ms === null || cycle.fork_star_time_ms === undefined ? "-" : `${htmlEscape(fmtNum(cycle.fork_star_time_ms, 0))} ms`}</td>
+      <td>${htmlEscape(fmtNum(cycle.yaw_jump_max_deg, 3))}°</td>
+      <td>${htmlEscape(fmtNum(cycle.curv_abs_max, 5))}</td>
+      <td>${htmlEscape(fmtNum(cycle.path_length_m, 3))} m</td>
+    </tr>
+  `).join("");
+  [...document.querySelectorAll("#cycleStrip .cycle-chip"), ...document.querySelectorAll("#cycleTable tbody tr")].forEach((node) => {
+    node.addEventListener("click", () => selectCycle(Number(node.getAttribute("data-cycle-index"))));
+  });
+  syncCycleDiagnosticsSelection(dashboardState.selectedCycleIndex || cycles[0].cycle_index);
 }
 function trajectoryColor(tag, selected) {
   if (selected) return "#1185ff";
@@ -1107,10 +1685,27 @@ function drawTrajectoryMap(selectedCycleIndex) {
   });
   ctx.globalAlpha = 1;
 }
-function initTrajectorySelector() {
+function selectCycle(targetCycleIndex) {
   const trajectories = data.trajectoryPreview || [];
   const sel = document.getElementById("trajectorySelect");
   const meta = document.getElementById("trajectoryMeta");
+  if (!trajectories.length) {
+    if (sel) sel.innerHTML = "<option>No trajectory</option>";
+    drawTrajectoryMap(-1);
+    return;
+  }
+  const item = trajectories.find((entry) => entry.cycle_index === Number(targetCycleIndex)) || trajectories[0];
+  dashboardState.selectedCycleIndex = item.cycle_index;
+  if (sel) sel.value = String(item.cycle_index);
+  if (meta) {
+    meta.textContent = `points=${item.point_count}, len=${item.path_length_m}m, yawJump=${item.yaw_jump_max_deg}, curv=${item.curv_abs_max}`;
+  }
+  drawTrajectoryMap(item.cycle_index);
+  syncCycleDiagnosticsSelection(item.cycle_index);
+}
+function initTrajectorySelector() {
+  const trajectories = data.trajectoryPreview || [];
+  const sel = document.getElementById("trajectorySelect");
   if (!trajectories.length) {
     sel.innerHTML = "<option>No trajectory</option>";
     drawTrajectoryMap(-1);
@@ -1119,14 +1714,8 @@ function initTrajectorySelector() {
   sel.innerHTML = trajectories
     .map((t, i) => `<option value="${t.cycle_index}" ${i === 0 ? "selected" : ""}>Cycle ${t.cycle_index} (${t.risk_tag})</option>`)
     .join("");
-  const refresh = () => {
-    const target = Number(sel.value);
-    const item = trajectories.find((t) => t.cycle_index === target) || trajectories[0];
-    meta.textContent = `points=${item.point_count}, len=${item.path_length_m}m, yawJump=${item.yaw_jump_max_deg}, curv=${item.curv_abs_max}`;
-    drawTrajectoryMap(item.cycle_index);
-  };
-  sel.addEventListener("change", refresh);
-  refresh();
+  sel.addEventListener("change", () => selectCycle(Number(sel.value)));
+  selectCycle(trajectories[0].cycle_index);
 }
 function renderCharts() {
   drawLine("timerChart", data.timerIntervals, {
@@ -1141,13 +1730,11 @@ function renderCharts() {
     color: "#de7f10",
     thresholds: [{ value: data.thresholds.yaw_jump_max_deg, color: "#d43f3a" }],
   });
-  drawLine("pathChart", data.pathLength.map((v, i) => v + (data.curvAbs[i] || 0) * 20), {
-    color: "#14866a",
-  });
+  drawBars("pathChart", (data.cycleDiagnostics || []).map((item) => Number(item.alert_score || 0)), "#1f8c78");
 }
 function renderWarnings() {
   const host = document.getElementById("vizWarnings");
-  const warnings = data.visualizationWarnings || [];
+  const warnings = data.parseWarnings || [];
   if (!warnings.length) {
     host.innerHTML = "";
     return;
@@ -1172,14 +1759,6 @@ function showVizSurface(image, src) {
 const processState = { index: 0, timer: null };
 function getProcessFrames() {
   return (data.processReplayData && data.processReplayData.frames) || [];
-}
-function processLayerState() {
-  return {
-    trajectory: document.getElementById("processShowTrajectory").checked,
-    slot: document.getElementById("processShowSlot").checked,
-    vehicle: document.getElementById("processShowVehicle").checked,
-    targets: document.getElementById("processShowTargets").checked,
-  };
 }
 function buildProcessBounds() {
   const fixed = data.processReplayData && data.processReplayData.fixed_bounds_mm;
@@ -1260,6 +1839,14 @@ function drawProcessReplay() {
     ? `source ${activeBoundary.filename} · frames ${activeBoundary.start_frame_index + 1}-${activeBoundary.end_frame_index + 1} · lines ${safeText(frame.source_line_count)}`
     : `source ${safeText(frame.log_name)} · lines ${safeText(frame.source_line_count)}`;
 }
+function renderProcessReplaySources() {
+  const host = document.getElementById("processReplaySources");
+  const boundaries = (data.processReplayData && data.processReplayData.file_boundaries) || [];
+  if (!host) return;
+  host.textContent = boundaries.length
+    ? boundaries.map((item) => `${item.filename} [frames ${item.start_frame_index + 1}-${item.end_frame_index + 1}]`).join(" | ")
+    : "";
+}
 function stopProcessPlayback() {
   if (processState.timer) {
     clearInterval(processState.timer);
@@ -1282,6 +1869,8 @@ function startProcessPlayback() {
 function initProcessReplay() {
   const frames = getProcessFrames();
   const range = document.getElementById("processFrameRange");
+  renderLayerLegend("processLayerLegend", ["trajectory", "parking slot", "vehicle", "targets"]);
+  renderProcessReplaySources();
   range.max = String(Math.max(frames.length - 1, 0));
   range.value = "0";
   range.addEventListener("input", () => {
@@ -1294,9 +1883,6 @@ function initProcessReplay() {
   });
   document.getElementById("processSpeedSelect").addEventListener("change", () => {
     if (processState.timer) startProcessPlayback();
-  });
-  ["processShowTrajectory", "processShowSlot", "processShowVehicle", "processShowTargets"].forEach((id) => {
-    document.getElementById(id).disabled = true;
   });
   drawProcessReplay();
 }
@@ -1312,14 +1898,6 @@ function decodeGrid(base64, size) {
 }
 function getGridFrames() {
   return (data.gridMapData && data.gridMapData.frames) || [];
-}
-function gridLayerState() {
-  return {
-    trajectory: document.getElementById("gridShowTrajectory").checked,
-    slot: document.getElementById("gridShowSlot").checked,
-    base: document.getElementById("gridShowBase").checked,
-    poses: document.getElementById("gridShowPoses").checked,
-  };
 }
 function buildGridPixelBounds(frame) {
   const size = Number(frame.grid_size || 512);
@@ -1620,6 +2198,7 @@ function drawGridMap() {
 function initGridMap() {
   const frames = getGridFrames();
   const select = document.getElementById("gridFrameSelect");
+  renderLayerLegend("gridLayerLegend", ["trajectory", "slot polygon", "base polygon", "ego / target"]);
   if (!frames.length) {
     select.innerHTML = '<option value="0">No frame</option>';
   } else {
@@ -1629,30 +2208,42 @@ function initGridMap() {
     }).join("");
   }
   select.addEventListener("change", drawGridMap);
-  ["gridShowTrajectory", "gridShowSlot", "gridShowBase", "gridShowPoses"].forEach((id) => {
-    document.getElementById(id).disabled = true;
-  });
-  document.getElementById("gridAlphaRange").disabled = true;
   drawGridMap();
 }
 function populateAnomalies() {
   const tbody = document.querySelector("#anomalyTable tbody");
   tbody.innerHTML = "";
-  (data.anomalies || []).forEach((a) => {
+  const anomalies = data.anomalies || [];
+  if (!anomalies.length) {
+    tbody.innerHTML = `<tr><td colspan="6">No anomaly rules were triggered for this report.</td></tr>`;
+    return;
+  }
+  anomalies.forEach((a) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${htmlEscape(a.rule || "")}</td><td class="sev-${a.severity || "low"}">${htmlEscape(a.severity || "")}</td><td>${htmlEscape(a.count ?? "")}</td><td>${htmlEscape(a.detail || "")}</td>`;
+    const sample = a.sample || {};
+    const evidenceNote = a.evidence_count
+      ? `${safeText(a.evidence_count)} hit(s)${sample.source_log ? ` · ${safeText(sample.source_log)}:${safeText(sample.line_no)}` : ""}`
+      : "-";
+    tr.innerHTML = `<td><strong>${htmlEscape(a.rule || "")}</strong></td><td>${htmlEscape(a.category || "-")}</td><td class="sev-${a.severity || "low"}">${htmlEscape(a.severity || "")}</td><td>${htmlEscape(a.count ?? "")}</td><td>${htmlEscape(evidenceNote)}</td><td>${htmlEscape(a.detail || "")}</td>`;
     tbody.appendChild(tr);
   });
 }
 function redrawAll() {
   renderCharts();
-  const sel = document.getElementById("trajectorySelect");
-  drawTrajectoryMap(Number(sel && sel.value ? sel.value : -1));
+  drawTrajectoryMap(dashboardState.selectedCycleIndex || -1);
   drawProcessReplay();
   drawGridMap();
 }
 renderWarnings();
+renderHeroStats();
+renderHeroRiskSplit();
+renderRiskPanels();
+renderRiskDrivers();
+renderTopModules();
+renderModuleDiagnosis();
+renderSourceCoverage();
 renderCharts();
+renderCycleDiagnostics();
 initTrajectorySelector();
 initProcessReplay();
 initGridMap();
@@ -1681,6 +2272,8 @@ window.addEventListener("beforeunload", stopProcessPlayback);
         "__REPLAN_RATIO__": str(key_metrics.get("replan_ratio", 0.0)),
         "__REPLAN_STREAK__": str(key_metrics.get("longest_replan_streak", 0)),
         "__HIGH_ANOMALY_COUNT__": str(sum(1 for anomaly in anomalies if anomaly.get("severity") == "high")),
+        "__LOG_COUNT__": str(dashboard_data.get("analysisOverview", {}).get("log_count", 1)),
+        "__WARNING_COUNT__": str(dashboard_data.get("analysisOverview", {}).get("warning_count", 0)),
         "__YAW_LIMIT__": yaw_limit,
         "__DATA_JSON__": data_json,
     }

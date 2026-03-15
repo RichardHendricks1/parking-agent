@@ -41,7 +41,8 @@ class MiniAgent:
         return (
             f"请基于本轮已有工具输出与上一轮结论，进行第 {round_idx + 1}/{total_rounds} 轮复核分析。"
             "要求：1) 校验是否有遗漏或矛盾；2) 引用关键证据（指标/阈值/异常）；"
-            "3) 给出更稳健的最终结论。"
+            "3) 给出更稳健的最终结论；4) 若 analyze_planning_log 输出包含 module_diagnosis，优先引用 "
+            "primary_module、confidence_0_to_1 和 reason。"
             f"本轮工具仅有：{tools_text}。"
             "严格忽略本轮之前的历史工具结果（例如 analyze_parking 等），只基于当前回合工具产出复核。"
         )

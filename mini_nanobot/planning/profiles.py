@@ -19,6 +19,13 @@ class PlanningThresholdProfile:
     curv_delta_max: float = 0.03
     replan_streak_high: int = 3
     short_path_length_m: float = 2.0
+    signal_missing_ratio_high: float = 0.4
+    localization_pose_jump_max_mm: float = 800.0
+    localization_yaw_jump_max_deg: float = 15.0
+    perception_geometry_jump_max_mm: float = 500.0
+    stopper_distance_jump_max_mm: float = 400.0
+    module_min_evidence_score: float = 3.0
+    module_primary_margin_score: float = 2.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -38,6 +45,13 @@ BUILTIN_PROFILES: dict[str, PlanningThresholdProfile] = {
         curv_delta_max=0.02,
         replan_streak_high=2,
         short_path_length_m=2.5,
+        signal_missing_ratio_high=0.3,
+        localization_pose_jump_max_mm=650.0,
+        localization_yaw_jump_max_deg=12.0,
+        perception_geometry_jump_max_mm=350.0,
+        stopper_distance_jump_max_mm=300.0,
+        module_min_evidence_score=4.0,
+        module_primary_margin_score=3.0,
     ),
     "lenient": PlanningThresholdProfile(
         name="lenient",
@@ -51,6 +65,13 @@ BUILTIN_PROFILES: dict[str, PlanningThresholdProfile] = {
         curv_delta_max=0.04,
         replan_streak_high=4,
         short_path_length_m=1.5,
+        signal_missing_ratio_high=0.5,
+        localization_pose_jump_max_mm=1000.0,
+        localization_yaw_jump_max_deg=20.0,
+        perception_geometry_jump_max_mm=700.0,
+        stopper_distance_jump_max_mm=550.0,
+        module_min_evidence_score=2.0,
+        module_primary_margin_score=1.0,
     ),
 }
 

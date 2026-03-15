@@ -540,7 +540,12 @@ def build_parser() -> argparse.ArgumentParser:
     profile_choices = available_profile_names()
 
     analyze_log = sub.add_parser("analyze-log", help="Run deterministic planning log analysis without an LLM")
-    analyze_log.add_argument("--log-path", required=True, nargs="+", help="One or more absolute planning log paths")
+    analyze_log.add_argument(
+        "--log-path",
+        required=True,
+        nargs="+",
+        help="One or more planning log paths, directories, or searchable planning.log hints",
+    )
     analyze_log.add_argument("--focus", choices=["comprehensive", "safety", "stability"], default="comprehensive")
     analyze_log.add_argument("--profile", choices=profile_choices, default="j6b_default", help="Threshold profile")
     analyze_log.add_argument("--profile-path", help="Optional JSON file with threshold overrides")

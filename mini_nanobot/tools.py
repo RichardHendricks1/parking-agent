@@ -363,16 +363,25 @@ class AnalyzePlanningLogTool(Tool):
     name = "analyze_planning_log"
     description = (
         "Analyze J6B parking planning logs with cycle segmentation, trajectory geometry checks, "
-        "risk scoring, profile-aware thresholds, and structured report output."
+        "risk scoring, profile-aware thresholds, structured report output, and automatic resolution "
+        "of nearby planning.log* files when given a directory or approximate path hint."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "log_path": {"type": "string", "description": "Absolute path to a planning log file."},
+            "log_path": {
+                "type": "string",
+                "description": (
+                    "Planning log file path, containing directory, or approximate planning.log hint. "
+                    "Nearby planning.log* files are auto-resolved when possible."
+                ),
+            },
             "log_paths": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional list of absolute planning log paths to merge into one analysis run.",
+                "description": (
+                    "Optional list of planning log file paths or searchable hints to merge into one analysis run."
+                ),
             },
             "focus": {
                 "type": "string",

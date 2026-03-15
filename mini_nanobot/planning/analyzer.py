@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
+import re
 from collections import Counter
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,24 @@ from mini_nanobot.planning.process_viz import extract_process_replay_files
 from mini_nanobot.planning.profiles import PlanningThresholdProfile, resolve_profile
 
 
+_DEFAULT_LOG_GLOB = "planning.log*"
+_SEARCH_DEPTH_LIMIT = 6
+_SEARCH_RESULT_LIMIT = 64
+_GENERIC_PATH_TOKENS = {"users", "home", "downloads", "desktop", "documents", "tmp", "private", "var"}
+_MODULE_NAMES = ("planning", "localization", "perception")
+_SEVERITY_WEIGHTS = {"high": 3, "medium": 2, "low": 1}
+_GEOMETRY_FIELDS = ("parking_space", "slot_corners", "fused_p0_p5", "realtime_parkingspace")
+_ALERT_STOP_REASONS = {
+    "FRONT_ALERT",
+    "REAR_ALERT",
+    "LEFTSIDE_ALERT",
+    "RIGHTSIDE_ALERT",
+    "TARGET_CLOSING",
+    "LEFTRVW_ALERT",
+    "RIGHTRVW_ALERT",
+}
+
+
 def build_error_payload(message: str, parse_warnings: list[str] | None = None) -> dict[str, Any]:
     return {
         "summary": "Planning log analysis failed.",
@@ -31,6 +53,15 @@ def build_error_payload(message: str, parse_warnings: list[str] | None = None) -
         "top_anomalies": [],
         "report_path": None,
         "dashboard_path": None,
+        "module_signals": [],
+        "module_diagnosis": {
+            "primary_module": "unknown",
+            "confidence_0_to_1": 0.0,
+            "reason": "Evidence is insufficient to assign a primary module.",
+            "module_scores": {module: 0 for module in _MODULE_NAMES},
+            "evidence": [],
+            "limitations": ["Based on planning.log heuristics only."],
+        },
         "parse_warnings": parse_warnings or [],
         "error": message,
     }
@@ -78,7 +109,246 @@ def _normalize_viz_backend(value: Any) -> str:
     return "matplotlib-svg"
 
 
-def _resolve_log_paths(log_path: str | Path | None, log_paths: list[str | Path] | None) -> list[Path]:
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        deduped.append(path)
+        seen.add(key)
+    return deduped
+
+
+def _nearest_existing_dir(path: Path) -> Path | None:
+    current = path.expanduser()
+    while True:
+        if current.exists():
+            return current if current.is_dir() else current.parent
+        if current == current.parent:
+            return None
+        current = current.parent
+
+
+def _build_log_search_roots(candidate: Path) -> list[Path]:
+    roots: list[Path] = []
+    home = Path.home()
+    common_home_roots = [home / "Downloads", home / "Desktop", home / "Documents", home]
+
+    if candidate.is_absolute():
+        nearest = _nearest_existing_dir(candidate)
+        if nearest and nearest not in {Path("/"), home}:
+            roots.append(nearest.resolve())
+        else:
+            roots.extend(root for root in common_home_roots if root.exists())
+    else:
+        roots.append(Path.cwd().resolve())
+        roots.extend(root for root in common_home_roots if root.exists())
+
+    return _dedupe_paths([root for root in roots if root.exists() and root.is_dir()])
+
+
+def _looks_like_glob(pattern: str) -> bool:
+    return any(char in pattern for char in "*?[]")
+
+
+def _looks_like_log_file_hint(candidate: Path) -> bool:
+    name = candidate.name.casefold()
+    return name.startswith("planning.log") or _looks_like_glob(candidate.name) or "." in candidate.name
+
+
+def _log_merge_sort_key(path: Path) -> tuple[str, float, str]:
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (path.name.casefold(), mtime, str(path))
+
+
+def _search_logs_in_directory(directory: Path) -> list[Path]:
+    matches = [
+        path.resolve()
+        for path in directory.resolve().glob(_DEFAULT_LOG_GLOB)
+        if path.is_file()
+    ]
+    return sorted(_dedupe_paths(matches), key=_log_merge_sort_key)
+
+
+def _build_log_search_patterns(candidate: Path) -> list[str]:
+    name = candidate.name.strip()
+    if not name:
+        return [_DEFAULT_LOG_GLOB]
+
+    patterns: list[str] = []
+    lowered = name.casefold()
+    if _looks_like_glob(name):
+        patterns.append(name)
+    elif lowered.startswith("planning.log"):
+        patterns.append(name)
+        patterns.append(f"{name}*")
+    elif "." in name:
+        patterns.append(name)
+        patterns.append(f"{name}*")
+    patterns.append(_DEFAULT_LOG_GLOB)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for pattern in patterns:
+        if pattern in seen:
+            continue
+        deduped.append(pattern)
+        seen.add(pattern)
+    return deduped
+
+
+def _iter_log_matches(root: Path, patterns: list[str], *, max_depth: int, limit: int) -> list[Path]:
+    matches: list[Path] = []
+    root = root.resolve()
+    root_depth = len(root.parts)
+    skip_dirs = {".git", ".hg", ".svn", "__pycache__", "node_modules", ".venv", "venv"}
+
+    for current, dirs, files in os.walk(root):
+        current_path = Path(current)
+        depth = len(current_path.parts) - root_depth
+        dirs[:] = [name for name in dirs if name not in skip_dirs and not name.startswith(".")]
+        if depth >= max_depth:
+            dirs[:] = []
+        for file_name in files:
+            if not any(fnmatch.fnmatch(file_name, pattern) for pattern in patterns):
+                continue
+            path = (current_path / file_name).resolve()
+            if path.is_file():
+                matches.append(path)
+            if len(matches) >= limit:
+                return matches
+    return matches
+
+
+def _normalize_token(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.casefold())
+
+
+def _path_hint_tokens(candidate: Path) -> list[str]:
+    tokens: list[str] = []
+    for part in candidate.parts:
+        token = _normalize_token(part)
+        if len(token) < 3 or token in _GENERIC_PATH_TOKENS:
+            continue
+        tokens.append(token)
+    return tokens[-4:]
+
+
+def _score_log_candidate(requested: Path, found: Path) -> tuple[int, float]:
+    requested_name = requested.name.casefold()
+    found_name = found.name.casefold()
+    requested_text = str(requested).casefold()
+    found_text = str(found).casefold()
+    normalized_found = _normalize_token(found_text)
+
+    score = 0
+    if requested_name and found_name == requested_name:
+        score += 400
+    elif requested_name and found_name.startswith(requested_name):
+        score += 260
+    elif requested_name and requested_name in found_name:
+        score += 180
+    if found_name.startswith("planning.log"):
+        score += 80
+    if requested_text and found_text.endswith(requested_text):
+        score += 160
+    for token in _path_hint_tokens(requested):
+        if token in normalized_found:
+            score += 35
+    score += int(SequenceMatcher(None, requested_text[-160:], found_text[-160:]).ratio() * 100.0)
+    try:
+        mtime = found.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return score, mtime
+
+
+def _search_for_log_candidates(candidate: Path) -> tuple[list[Path], str]:
+    roots = _build_log_search_roots(candidate)
+    patterns = _build_log_search_patterns(candidate)
+    matches: list[Path] = []
+
+    for root in roots:
+        remaining = max(1, _SEARCH_RESULT_LIMIT - len(matches))
+        matches.extend(
+            _iter_log_matches(
+                root,
+                patterns,
+                max_depth=_SEARCH_DEPTH_LIMIT,
+                limit=remaining,
+            )
+        )
+        if len(matches) >= _SEARCH_RESULT_LIMIT:
+            break
+
+    ranked = sorted(
+        _dedupe_paths(matches),
+        key=lambda path: _score_log_candidate(candidate, path),
+        reverse=True,
+    )
+    roots_text = ", ".join(str(root) for root in roots) if roots else "(none)"
+    patterns_text = ", ".join(patterns)
+    return ranked, f"Searched under {roots_text} with patterns {patterns_text}."
+
+
+def _resolve_single_log_path(raw: str | Path) -> tuple[list[Path], list[str]]:
+    raw_text = str(raw or "").strip()
+    if not raw_text:
+        raise ValueError("Empty log_path value")
+
+    candidate = Path(raw_text).expanduser()
+    if candidate.exists():
+        if candidate.is_file():
+            return [candidate.resolve()], []
+        if candidate.is_dir():
+            matches = _search_logs_in_directory(candidate)
+            if matches:
+                if len(matches) == 1:
+                    warning = f"log_path pointed to directory {candidate}; resolved to {matches[0]}."
+                else:
+                    warning = f"log_path pointed to directory {candidate}; merged {len(matches)} candidate log(s)."
+                return matches, [warning]
+            matches, search_note = _search_for_log_candidates(candidate)
+            if matches:
+                chosen = matches[0]
+                warning = (
+                    f"log_path pointed to directory {candidate}; auto-selected {chosen} "
+                    f"from {len(matches)} candidate log(s)."
+                )
+                return [chosen], [warning]
+            raise ValueError(f"log directory contains no planning.log* files: {candidate}. {search_note}")
+
+    matches, search_note = _search_for_log_candidates(candidate)
+    if matches:
+        if not _looks_like_log_file_hint(candidate):
+            merged = _search_logs_in_directory(matches[0].parent)
+            if merged:
+                warning = (
+                    f"log_path {candidate} was not found; auto-resolved to directory {matches[0].parent} "
+                    f"and merged {len(merged)} candidate log(s)."
+                )
+                return merged, [warning]
+        chosen = matches[0]
+        warning = (
+            f"log_path {candidate} was not found; auto-resolved to {chosen} "
+            f"from {len(matches)} candidate log(s)."
+        )
+        return [chosen], [warning]
+
+    if candidate.is_absolute():
+        raise ValueError(f"log file not found: {candidate}. {search_note}")
+    raise ValueError(f"log_path not found from hint: {candidate}. {search_note}")
+
+
+def _resolve_log_paths(
+    log_path: str | Path | None,
+    log_paths: list[str | Path] | None,
+) -> tuple[list[Path], list[str]]:
     raw_values: list[str | Path] = []
     if log_paths:
         raw_values.extend(log_paths)
@@ -86,17 +356,23 @@ def _resolve_log_paths(log_path: str | Path | None, log_paths: list[str | Path] 
         raw_values.insert(0, log_path)
 
     resolved: list[Path] = []
+    warnings: list[str] = []
     seen: set[str] = set()
+    seen_raw: set[str] = set()
     for raw in raw_values:
-        candidate = Path(str(raw)).expanduser()
-        if not candidate.is_absolute():
-            raise ValueError(f"log_path must be an absolute path: {candidate}")
-        key = str(candidate)
-        if key in seen:
+        raw_key = str(raw).strip()
+        if raw_key in seen_raw:
             continue
-        resolved.append(candidate)
-        seen.add(key)
-    return resolved
+        seen_raw.add(raw_key)
+        candidates, candidate_warnings = _resolve_single_log_path(raw)
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen:
+                continue
+            resolved.append(candidate)
+            seen.add(key)
+        warnings.extend(candidate_warnings)
+    return resolved, warnings
 
 
 def _report_stem(log_paths: list[Path]) -> str:
@@ -158,6 +434,479 @@ def _cycle_alert_score(cycle: dict[str, Any], profile: PlanningThresholdProfile)
     if cycle["path_length_m"] < profile.short_path_length_m:
         score += 1
     return score
+
+
+def _cycle_risk_tag(alert_score: int) -> str:
+    if alert_score >= 3:
+        return "high"
+    if alert_score >= 1:
+        return "medium"
+    return "normal"
+
+
+def _severity_weight(severity: str) -> int:
+    return int(_SEVERITY_WEIGHTS.get(str(severity or "").lower(), 0))
+
+
+def _frame_value_label(frame: dict[str, Any], key: str) -> str | None:
+    value = frame.get(key)
+    if isinstance(value, dict):
+        label = value.get("label")
+        if label not in (None, ""):
+            return str(label)
+        raw = value.get("value")
+        if raw not in (None, ""):
+            return str(raw)
+    return None
+
+
+def _frame_has_geometry(frame: dict[str, Any]) -> bool:
+    return any(frame.get(field) for field in _GEOMETRY_FIELDS)
+
+
+def _frame_evidence(frame: dict[str, Any], detail: str) -> dict[str, Any]:
+    evidence = {
+        "source_log": frame.get("log_name") or Path(str(frame.get("source_log_path") or "")).name or None,
+        "frame_index": frame.get("frame_index"),
+        "plan_frame_id": frame.get("plan_frame_id"),
+        "detail": safe_message(detail),
+    }
+    if frame.get("vehicle_location_timestamp"):
+        evidence["vehicle_location_timestamp"] = frame["vehicle_location_timestamp"].get("value")
+    if frame.get("perception_fusion_timestamp"):
+        evidence["perception_fusion_timestamp"] = frame["perception_fusion_timestamp"].get("value")
+    stop_reason = _frame_value_label(frame, "vehicle_stop_reason")
+    if stop_reason:
+        evidence["vehicle_stop_reason"] = stop_reason
+    return evidence
+
+
+def _dedupe_evidence_rows(rows: list[dict[str, Any]], evidence_limit: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        key = (
+            row.get("source_log"),
+            row.get("frame_index"),
+            row.get("plan_frame_id"),
+            row.get("detail"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+        if len(out) >= evidence_limit:
+            break
+    return out
+
+
+def _points_by_key(points: list[dict[str, Any]] | None) -> dict[str, tuple[float, float]]:
+    if not points:
+        return {}
+    keyed: dict[str, tuple[float, float]] = {}
+    for idx, point in enumerate(points):
+        if not isinstance(point, dict):
+            continue
+        key = str(point.get("label") or idx)
+        if "x_mm" not in point or "y_mm" not in point:
+            continue
+        keyed[key] = (float(point["x_mm"]), float(point["y_mm"]))
+    return keyed
+
+
+def _points_max_delta_mm(
+    prev_points: list[dict[str, Any]] | None,
+    curr_points: list[dict[str, Any]] | None,
+) -> float | None:
+    prev_map = _points_by_key(prev_points)
+    curr_map = _points_by_key(curr_points)
+    common = sorted(set(prev_map) & set(curr_map))
+    if not common:
+        return None
+    max_delta = 0.0
+    for key in common:
+        prev_x, prev_y = prev_map[key]
+        curr_x, curr_y = curr_map[key]
+        dx = curr_x - prev_x
+        dy = curr_y - prev_y
+        max_delta = max(max_delta, (dx * dx + dy * dy) ** 0.5)
+    return round(max_delta, 3)
+
+
+def _geometry_field_deltas(prev_frame: dict[str, Any], curr_frame: dict[str, Any]) -> dict[str, float]:
+    deltas: dict[str, float] = {}
+    for field in _GEOMETRY_FIELDS:
+        delta = _points_max_delta_mm(prev_frame.get(field), curr_frame.get(field))
+        if delta is not None:
+            deltas[field] = delta
+    return deltas
+
+
+def _pose_distance_mm(prev_pose: dict[str, Any] | None, curr_pose: dict[str, Any] | None) -> float | None:
+    if not prev_pose or not curr_pose:
+        return None
+    dx = float(curr_pose["x_mm"]) - float(prev_pose["x_mm"])
+    dy = float(curr_pose["y_mm"]) - float(prev_pose["y_mm"])
+    return round((dx * dx + dy * dy) ** 0.5, 3)
+
+
+def _yaw_delta_deg(prev_yaw: float, curr_yaw: float) -> float:
+    diff = float(curr_yaw) - float(prev_yaw)
+    while diff > 180.0:
+        diff -= 360.0
+    while diff < -180.0:
+        diff += 360.0
+    return round(abs(diff), 3)
+
+
+def _stable_ego_pose(prev_frame: dict[str, Any], curr_frame: dict[str, Any], profile: PlanningThresholdProfile) -> bool:
+    prev_pose = prev_frame.get("vehicle_location")
+    curr_pose = curr_frame.get("vehicle_location")
+    if not prev_pose or not curr_pose:
+        return False
+    distance_mm = _pose_distance_mm(prev_pose, curr_pose)
+    yaw_delta = _yaw_delta_deg(prev_pose["yaw_deg"], curr_pose["yaw_deg"])
+    if distance_mm is None:
+        return False
+    return (
+        distance_mm <= profile.localization_pose_jump_max_mm
+        and yaw_delta <= profile.localization_yaw_jump_max_deg
+    )
+
+
+def _build_module_signal(
+    *,
+    signal: str,
+    module: str,
+    severity: str,
+    detail: str,
+    evidence: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "signal": signal,
+        "module": module,
+        "severity": severity,
+        "detail": detail,
+        "evidence": evidence,
+    }
+
+
+def _signal_sort_key(signal: dict[str, Any]) -> tuple[int, int, int]:
+    module = str(signal.get("module") or "")
+    return (
+        _severity_weight(str(signal.get("severity") or "")),
+        len(signal.get("evidence") or []),
+        -_MODULE_NAMES.index(module) if module in _MODULE_NAMES else -len(_MODULE_NAMES),
+    )
+
+
+def _planning_module_signals(anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        _build_module_signal(
+            signal=str(anomaly.get("rule") or "planning_anomaly"),
+            module="planning",
+            severity=str(anomaly.get("severity") or "low"),
+            detail=str(anomaly.get("detail") or ""),
+            evidence=list(anomaly.get("evidence") or []),
+        )
+        for anomaly in anomalies
+    ]
+
+
+def _heuristic_module_signals(
+    frames: list[dict[str, Any]],
+    *,
+    profile: PlanningThresholdProfile,
+    evidence_limit: int,
+) -> list[dict[str, Any]]:
+    if not frames:
+        return []
+
+    total_frames = len(frames)
+    signals: list[dict[str, Any]] = []
+    high_missing_ratio = min(0.9, profile.signal_missing_ratio_high + 0.25)
+
+    vehicle_location_missing = [
+        frame
+        for frame in frames
+        if not frame.get("vehicle_location") or not frame.get("vehicle_location_timestamp")
+    ]
+    vehicle_location_missing_ratio = len(vehicle_location_missing) / max(1, total_frames)
+    if vehicle_location_missing_ratio >= profile.signal_missing_ratio_high:
+        severity = "high" if vehicle_location_missing_ratio >= high_missing_ratio else "medium"
+        evidence = _dedupe_evidence_rows(
+            [
+                _frame_evidence(frame, "Vehicle location or its timestamp was missing in the replay frame.")
+                for frame in vehicle_location_missing
+            ],
+            evidence_limit,
+        )
+        signals.append(
+            _build_module_signal(
+                signal="vehicle_location_missing_ratio",
+                module="localization",
+                severity=severity,
+                detail=(
+                    f"{len(vehicle_location_missing)} / {total_frames} replay frames were missing vehicle "
+                    f"location or vehicle_location_timestamp (ratio={round(vehicle_location_missing_ratio, 3)})."
+                ),
+                evidence=evidence,
+            )
+        )
+
+    localization_pose_jump_rows: list[dict[str, Any]] = []
+    for prev_frame, curr_frame in zip(frames, frames[1:]):
+        prev_pose = prev_frame.get("vehicle_location")
+        curr_pose = curr_frame.get("vehicle_location")
+        if not prev_pose or not curr_pose:
+            continue
+        pose_distance_mm = _pose_distance_mm(prev_pose, curr_pose)
+        yaw_delta = _yaw_delta_deg(prev_pose["yaw_deg"], curr_pose["yaw_deg"])
+        if pose_distance_mm is None:
+            continue
+        if (
+            pose_distance_mm <= profile.localization_pose_jump_max_mm
+            and yaw_delta <= profile.localization_yaw_jump_max_deg
+        ):
+            continue
+        geometry_deltas = _geometry_field_deltas(prev_frame, curr_frame)
+        if not geometry_deltas:
+            continue
+        if any(delta > profile.perception_geometry_jump_max_mm for delta in geometry_deltas.values()):
+            continue
+        stable_fields = ", ".join(
+            f"{field}={fmt_num}"
+            for field, fmt_num in (
+                (field, f"{round(delta, 1)}mm") for field, delta in sorted(geometry_deltas.items())
+            )
+        )
+        localization_pose_jump_rows.append(
+            _frame_evidence(
+                curr_frame,
+                (
+                    f"Vehicle pose jumped {round(pose_distance_mm, 1)}mm / {round(yaw_delta, 1)}deg "
+                    f"while geometry stayed stable ({stable_fields})."
+                ),
+            )
+        )
+    if localization_pose_jump_rows:
+        signals.append(
+            _build_module_signal(
+                signal="vehicle_location_pose_jump",
+                module="localization",
+                severity="high",
+                detail=(
+                    f"{len(localization_pose_jump_rows)} adjacent replay frame pairs showed vehicle pose jumps "
+                    f"> {profile.localization_pose_jump_max_mm}mm or > {profile.localization_yaw_jump_max_deg}deg "
+                    f"while parking-space geometry remained stable."
+                ),
+                evidence=_dedupe_evidence_rows(localization_pose_jump_rows, evidence_limit),
+            )
+        )
+
+    track_loss_frames = [
+        frame
+        for frame in frames
+        if _frame_value_label(frame, "vehicle_stop_reason") == "TRACK_LOSS"
+    ]
+    if track_loss_frames:
+        signals.append(
+            _build_module_signal(
+                signal="vehicle_stop_reason_track_loss",
+                module="localization",
+                severity="high",
+                detail=f"{len(track_loss_frames)} replay frame(s) reported vehicle_stop_reason=TRACK_LOSS.",
+                evidence=_dedupe_evidence_rows(
+                    [_frame_evidence(frame, "vehicle_stop_reason=TRACK_LOSS") for frame in track_loss_frames],
+                    evidence_limit,
+                ),
+            )
+        )
+
+    perception_missing = [
+        frame
+        for frame in frames
+        if not frame.get("perception_fusion_timestamp") or not _frame_has_geometry(frame)
+    ]
+    perception_missing_ratio = len(perception_missing) / max(1, total_frames)
+    if perception_missing_ratio >= profile.signal_missing_ratio_high:
+        severity = "high" if perception_missing_ratio >= high_missing_ratio else "medium"
+        evidence = _dedupe_evidence_rows(
+            [
+                _frame_evidence(frame, "Perception fusion timestamp or parking-space geometry was missing.")
+                for frame in perception_missing
+            ],
+            evidence_limit,
+        )
+        signals.append(
+            _build_module_signal(
+                signal="perception_fusion_missing_ratio",
+                module="perception",
+                severity=severity,
+                detail=(
+                    f"{len(perception_missing)} / {total_frames} replay frames were missing perception_fusion_timestamp "
+                    f"or parking-space geometry (ratio={round(perception_missing_ratio, 3)})."
+                ),
+                evidence=evidence,
+            )
+        )
+
+    geometry_jump_rows: list[dict[str, Any]] = []
+    for prev_frame, curr_frame in zip(frames, frames[1:]):
+        if not _stable_ego_pose(prev_frame, curr_frame, profile):
+            continue
+        geometry_deltas = _geometry_field_deltas(prev_frame, curr_frame)
+        jumped = {
+            field: delta
+            for field, delta in geometry_deltas.items()
+            if delta > profile.perception_geometry_jump_max_mm
+        }
+        if not jumped:
+            continue
+        jumped_fields = ", ".join(f"{field}={round(delta, 1)}mm" for field, delta in sorted(jumped.items()))
+        geometry_jump_rows.append(
+            _frame_evidence(
+                curr_frame,
+                (
+                    f"Parking-space geometry jumped beyond {profile.perception_geometry_jump_max_mm}mm "
+                    f"while ego pose stayed stable ({jumped_fields})."
+                ),
+            )
+        )
+    if geometry_jump_rows:
+        signals.append(
+            _build_module_signal(
+                signal="parking_space_geometry_jump",
+                module="perception",
+                severity="high",
+                detail=(
+                    f"{len(geometry_jump_rows)} adjacent replay frame pairs showed parking-space geometry jumps "
+                    f"> {profile.perception_geometry_jump_max_mm}mm while ego pose remained stable."
+                ),
+                evidence=_dedupe_evidence_rows(geometry_jump_rows, evidence_limit),
+            )
+        )
+
+    stopper_jump_rows: list[dict[str, Any]] = []
+    longest_alert_streak = 0
+    current_alert_streak: list[dict[str, Any]] = []
+    alert_streak_rows: list[dict[str, Any]] = []
+    for prev_frame, curr_frame in zip(frames, frames[1:]):
+        prev_distance = prev_frame.get("stopper_distance_mm")
+        curr_distance = curr_frame.get("stopper_distance_mm")
+        if prev_distance is not None and curr_distance is not None:
+            delta = abs(float(curr_distance) - float(prev_distance))
+            if delta > profile.stopper_distance_jump_max_mm:
+                stopper_jump_rows.append(
+                    _frame_evidence(
+                        curr_frame,
+                        (
+                            f"stopper_distance_mm changed by {round(delta, 1)}mm "
+                            f"(threshold={profile.stopper_distance_jump_max_mm}mm)."
+                        ),
+                    )
+                )
+        stop_reason = _frame_value_label(curr_frame, "vehicle_stop_reason")
+        if stop_reason in _ALERT_STOP_REASONS:
+            current_alert_streak.append(curr_frame)
+            if len(current_alert_streak) > longest_alert_streak:
+                longest_alert_streak = len(current_alert_streak)
+                alert_streak_rows = [
+                    _frame_evidence(frame, f"vehicle_stop_reason={_frame_value_label(frame, 'vehicle_stop_reason')}")
+                    for frame in current_alert_streak
+                ]
+        else:
+            current_alert_streak = []
+    if stopper_jump_rows or longest_alert_streak >= 2:
+        severity = "high" if len(stopper_jump_rows) >= 2 or longest_alert_streak >= 3 else "medium"
+        clauses: list[str] = []
+        if stopper_jump_rows:
+            clauses.append(
+                f"{len(stopper_jump_rows)} stopper distance jump(s) exceeded {profile.stopper_distance_jump_max_mm}mm"
+            )
+        if longest_alert_streak >= 2:
+            clauses.append(f"alert stop reasons repeated for {longest_alert_streak} frame(s)")
+        signals.append(
+            _build_module_signal(
+                signal="stopper_alert_oscillation",
+                module="perception",
+                severity=severity,
+                detail="; ".join(clauses) + ".",
+                evidence=_dedupe_evidence_rows(stopper_jump_rows + alert_streak_rows, evidence_limit),
+            )
+        )
+
+    return sorted(signals, key=_signal_sort_key, reverse=True)
+
+
+def _build_module_diagnosis(
+    module_signals: list[dict[str, Any]],
+    *,
+    profile: PlanningThresholdProfile,
+    process_frame_count: int,
+) -> dict[str, Any]:
+    module_scores = {module: 0 for module in _MODULE_NAMES}
+    for signal in module_signals:
+        module = str(signal.get("module") or "")
+        if module in module_scores:
+            module_scores[module] += _severity_weight(str(signal.get("severity") or ""))
+
+    ranked_modules = sorted(
+        module_scores.items(),
+        key=lambda item: (-item[1], _MODULE_NAMES.index(item[0])),
+    )
+    top_module, top_score = ranked_modules[0]
+    second_score = ranked_modules[1][1] if len(ranked_modules) > 1 else 0
+    total_score = sum(module_scores.values())
+    confidence = round(top_score / max(total_score, 1), 2)
+    limitations = ["Based on planning.log heuristics only."]
+    if process_frame_count <= 0:
+        limitations.append(
+            "Process replay fields were unavailable; localization and perception attribution remained conservative."
+        )
+
+    primary_module = top_module
+    if (
+        top_score < profile.module_min_evidence_score
+        or (top_score - second_score) < profile.module_primary_margin_score
+    ):
+        primary_module = "unknown"
+
+    ranked_signals = sorted(module_signals, key=_signal_sort_key, reverse=True)
+    primary_signals = [
+        signal for signal in ranked_signals if signal.get("module") == primary_module
+    ] if primary_module != "unknown" else ranked_signals
+    evidence = [
+        {
+            "signal": signal.get("signal"),
+            "module": signal.get("module"),
+            "severity": signal.get("severity"),
+            "detail": signal.get("detail"),
+            "evidence_count": len(signal.get("evidence") or []),
+            "sample": (signal.get("evidence") or [None])[0],
+        }
+        for signal in primary_signals[:3]
+    ]
+
+    if primary_module == "unknown":
+        if total_score <= 0:
+            reason = "Evidence is insufficient to assign a primary module."
+        elif top_score < profile.module_min_evidence_score:
+            reason = "Evidence is insufficient to assign a primary module with confidence."
+        else:
+            reason = "Evidence is split across modules and does not meet the primary margin threshold."
+    else:
+        details = "; ".join(safe_message(str(signal.get("detail") or ""), 160) for signal in primary_signals[:3])
+        reason = f"Primary suspect is {primary_module}: {details}"
+
+    return {
+        "primary_module": primary_module,
+        "confidence_0_to_1": confidence,
+        "reason": reason,
+        "module_scores": module_scores,
+        "evidence": evidence,
+        "limitations": limitations,
+    }
 
 
 def _build_visualizations(
@@ -271,8 +1020,9 @@ def _analyze_parsed_log(
     generate_process_replay: bool,
     generate_gridmap_view: bool,
     viz_backend: str,
+    parse_warnings_prefix: list[str] | None = None,
 ) -> dict[str, Any]:
-    parse_warnings = list(parsed.parse_warnings)
+    parse_warnings = list(parse_warnings_prefix or []) + list(parsed.parse_warnings)
     if parsed.parsed_lines == 0:
         return build_error_payload("Log format mismatch: no parseable lines found.", parse_warnings)
     if not parsed.cycles:
@@ -296,6 +1046,24 @@ def _analyze_parsed_log(
         timer_intervals_ms.append(delta_ms)
         if delta_ms < profile.timer_interval_low_ms or delta_ms > profile.timer_interval_high_ms:
             timer_jitter_evidence.append(cycles[idx]["start_entry"])
+
+    cycle_timer_interval_ms: dict[int, float | None] = {}
+    cycle_timer_jitter_ids: set[int] = set()
+    for idx, cycle in enumerate(cycles):
+        cycle_id = int(cycle["index"])
+        cycle_timer_interval_ms[cycle_id] = None
+        if idx == 0:
+            continue
+        if cycles[idx - 1].get("source_log_path") != cycle.get("source_log_path"):
+            continue
+        prev_ts = cycles[idx - 1]["start_ts"]
+        curr_ts = cycle["start_ts"]
+        if not prev_ts or not curr_ts:
+            continue
+        delta_ms = (curr_ts - prev_ts).total_seconds() * 1000.0
+        cycle_timer_interval_ms[cycle_id] = round(delta_ms, 3)
+        if delta_ms < profile.timer_interval_low_ms or delta_ms > profile.timer_interval_high_ms:
+            cycle_timer_jitter_ids.add(cycle_id)
 
     fork_times = [value for cycle in cycles for value in cycle["fork_times"]]
     path_sizes = [value for cycle in cycles for value in cycle["path_sizes"]]
@@ -500,10 +1268,62 @@ def _analyze_parsed_log(
 
     cycle_replan_flags = [cycle["replan"] for cycle in cycles if cycle["replan"] is not None]
     replan_ratio = round(sum(cycle_replan_flags) / len(cycle_replan_flags), 3) if cycle_replan_flags else 0.0
+    analysis_start_ts = next((cycle.get("start_ts") for cycle in cycles if cycle.get("start_ts")), None)
+    analysis_end_ts = next((cycle.get("start_ts") for cycle in reversed(cycles) if cycle.get("start_ts")), None)
+    analysis_duration_s = 0.0
+    if analysis_start_ts and analysis_end_ts and analysis_end_ts >= analysis_start_ts:
+        analysis_duration_s = round((analysis_end_ts - analysis_start_ts).total_seconds(), 3)
     summary = (
         f"Analyzed {len(parsed.lines)} lines in {len(cycles)} planning cycles across {len(log_paths)} log(s). "
         f"Profile={profile.name}, Risk={risk_level} ({score}/100), high anomalies={high_count}."
     )
+
+    severity_counts = {
+        "high": sum(1 for anomaly in anomalies_sorted if anomaly.get("severity") == "high"),
+        "medium": sum(1 for anomaly in anomalies_sorted if anomaly.get("severity") == "medium"),
+        "low": sum(1 for anomaly in anomalies_sorted if anomaly.get("severity") == "low"),
+    }
+
+    source_coverage_map: dict[str, dict[str, Any]] = {}
+    for cycle in cycles:
+        source_path = str(cycle.get("source_log_path") or "")
+        if not source_path:
+            continue
+        record = source_coverage_map.setdefault(
+            source_path,
+            {
+                "path": source_path,
+                "name": str(cycle.get("source_log_name") or Path(source_path).name),
+                "cycle_count": 0,
+                "trajectory_cycle_count": 0,
+                "first_cycle_index": int(cycle["index"]),
+                "last_cycle_index": int(cycle["index"]),
+                "first_timestamp": cycle["start_entry"]["timestamp_raw"],
+                "last_timestamp": cycle["start_entry"]["timestamp_raw"],
+            },
+        )
+        record["cycle_count"] += 1
+        if cycle["point_count"] > 0:
+            record["trajectory_cycle_count"] += 1
+        record["first_cycle_index"] = min(record["first_cycle_index"], int(cycle["index"]))
+        record["last_cycle_index"] = max(record["last_cycle_index"], int(cycle["index"]))
+        if not record.get("first_timestamp"):
+            record["first_timestamp"] = cycle["start_entry"]["timestamp_raw"]
+        record["last_timestamp"] = cycle["start_entry"]["timestamp_raw"]
+    source_coverage = list(source_coverage_map.values())
+
+    risk_drivers = [
+        {
+            "rule": anomaly.get("rule"),
+            "severity": anomaly.get("severity"),
+            "category": anomaly.get("category"),
+            "count": anomaly.get("count"),
+            "detail": anomaly.get("detail"),
+            "evidence_count": len(anomaly.get("evidence") or []),
+            "sample": (anomaly.get("evidence") or [{}])[0],
+        }
+        for anomaly in anomalies_sorted[:6]
+    ]
 
     ranked_cycles = sorted(
         cycle_with_points,
@@ -534,12 +1354,7 @@ def _analyze_parsed_log(
     for cycle in selected_cycles[:14]:
         points_sorted = [cycle["points"][idx] for idx in sorted(cycle["points"])]
         alert_score = _cycle_alert_score(cycle, profile)
-        if alert_score >= 3:
-            risk_tag = "high"
-        elif alert_score >= 1:
-            risk_tag = "medium"
-        else:
-            risk_tag = "normal"
+        risk_tag = _cycle_risk_tag(alert_score)
         trajectory_preview.append(
             {
                 "cycle_index": cycle["index"],
@@ -551,6 +1366,51 @@ def _analyze_parsed_log(
                 "risk_tag": risk_tag,
                 "alert_score": alert_score,
                 "points_xy_m": _downsample_points(points_sorted),
+            }
+        )
+
+    cycle_diagnostics = []
+    for cycle in selected_cycles[:24]:
+        cycle_id = int(cycle["index"])
+        alert_score = _cycle_alert_score(cycle, profile)
+        risk_tag = _cycle_risk_tag(alert_score)
+        issues: list[str] = []
+        if cycle_id in cycle_timer_jitter_ids:
+            issues.append("timer jitter")
+        if cycle["yaw_jump_max_deg"] > profile.yaw_jump_max_deg:
+            issues.append("yaw jump")
+        if cycle["curv_abs_max"] > profile.curv_abs_max or cycle["curv_delta_max"] > profile.curv_delta_max:
+            issues.append("curvature")
+        if cycle.get("replan") == 1:
+            issues.append("replan")
+        if cycle["path_length_m"] < profile.short_path_length_m:
+            issues.append("short path")
+        if any(value > profile.fork_star_time_high_ms for value in cycle["fork_times"]):
+            issues.append("fork high")
+        elif any(value > profile.fork_star_time_medium_ms for value in cycle["fork_times"]):
+            issues.append("fork medium")
+        if any(value < profile.path_size_min for value in cycle["path_sizes"]):
+            issues.append("path small")
+        cycle_diagnostics.append(
+            {
+                "cycle_index": cycle_id,
+                "timestamp": cycle["start_entry"]["timestamp_raw"],
+                "source_log_name": str(cycle.get("source_log_name") or ""),
+                "source_log_path": str(cycle.get("source_log_path") or ""),
+                "line_no": cycle["start_entry"].get("line_no"),
+                "alert_score": alert_score,
+                "risk_tag": risk_tag,
+                "timer_interval_ms": cycle_timer_interval_ms.get(cycle_id),
+                "timer_jitter": cycle_id in cycle_timer_jitter_ids,
+                "replan": cycle["replan"],
+                "fork_star_time_ms": max(cycle["fork_times"]) if cycle["fork_times"] else None,
+                "path_size": min(cycle["path_sizes"]) if cycle["path_sizes"] else None,
+                "point_count": cycle["point_count"],
+                "path_length_m": round(cycle["path_length_m"], 3),
+                "yaw_jump_max_deg": round(cycle["yaw_jump_max_deg"], 3),
+                "curv_abs_max": round(cycle["curv_abs_max"], 5),
+                "curv_delta_max": round(cycle["curv_delta_max"], 5),
+                "issues": issues,
             }
         )
 
@@ -608,6 +1468,46 @@ def _analyze_parsed_log(
         viz_backend=viz_backend,
     )
     parse_warnings.extend(w for w in visualization_warnings if w not in parse_warnings)
+    process_replay_data = visualization_data.get("processReplayData") or {}
+    process_replay_frames = list(process_replay_data.get("frames") or [])
+    process_replay_frame_count = int(process_replay_data.get("frame_count") or len(process_replay_frames))
+    module_signals = _planning_module_signals(anomalies_sorted)
+    module_signals.extend(
+        _heuristic_module_signals(
+            process_replay_frames,
+            profile=profile,
+            evidence_limit=evidence_limit,
+        )
+    )
+    module_signals = sorted(module_signals, key=_signal_sort_key, reverse=True)
+    module_diagnosis = _build_module_diagnosis(
+        module_signals,
+        profile=profile,
+        process_frame_count=process_replay_frame_count,
+    )
+
+    analysis_overview = {
+        "focus": focus,
+        "profile": profile.name,
+        "log_count": len(log_paths),
+        "warning_count": len(parse_warnings),
+        "parsed_line_ratio": round(parsed.parsed_lines / max(1, parsed.total_lines), 3),
+        "analysis_start": cycles[0]["start_entry"]["timestamp_raw"],
+        "analysis_end": cycles[-1]["start_entry"]["timestamp_raw"],
+        "analysis_duration_s": analysis_duration_s,
+        "null_bytes_removed": parsed.null_byte_count,
+        "severity_counts": severity_counts,
+        "risk_breakdown": {
+            "score_0_to_100": score,
+            "focus": focus,
+            "safety_risk_0_to_100": round(safety_risk, 1),
+            "stability_risk_0_to_100": round(stability_risk, 1),
+        },
+        "visualization_summary": {
+            "process_replay_frames": visualizations["process_replay"]["frame_count"],
+            "gridmap_frames": visualizations["gridmap_view"]["frame_count"],
+        },
+    }
 
     dashboard_data = {
         "timerIntervals": [round(value, 3) for value in timer_intervals_ms[:300]],
@@ -617,19 +1517,43 @@ def _analyze_parsed_log(
         "pathLength": [float(cycle["path_length_m"]) for cycle in cycle_metrics_preview[:200]],
         "curvAbs": [float(cycle["curv_abs_max"]) for cycle in cycle_metrics_preview[:200]],
         "trajectoryPreview": trajectory_preview[:24],
+        "cycleDiagnostics": cycle_diagnostics,
         "anomalies": [
             {
                 "rule": anomaly.get("rule"),
+                "category": anomaly.get("category"),
                 "severity": anomaly.get("severity"),
                 "count": anomaly.get("count"),
                 "detail": anomaly.get("detail"),
+                "evidence_count": len(anomaly.get("evidence") or []),
+                "sample": (anomaly.get("evidence") or [{}])[0],
             }
             for anomaly in anomalies_sorted[:30]
         ],
+        "analysisOverview": analysis_overview,
+        "riskDrivers": risk_drivers,
+        "sourceCoverage": source_coverage,
+        "topModules": key_metrics["top_modules"][:6],
+        "moduleDiagnosis": module_diagnosis,
+        "moduleSignals": module_signals[:12],
+        "parseWarnings": parse_warnings[:12],
         "thresholds": {
             "timer_interval_low_ms": profile.timer_interval_low_ms,
             "timer_interval_high_ms": profile.timer_interval_high_ms,
             "yaw_jump_max_deg": profile.yaw_jump_max_deg,
+            "curv_abs_max": profile.curv_abs_max,
+            "curv_delta_max": profile.curv_delta_max,
+            "path_size_min": profile.path_size_min,
+            "short_path_length_m": profile.short_path_length_m,
+            "fork_star_time_medium_ms": profile.fork_star_time_medium_ms,
+            "fork_star_time_high_ms": profile.fork_star_time_high_ms,
+            "signal_missing_ratio_high": profile.signal_missing_ratio_high,
+            "localization_pose_jump_max_mm": profile.localization_pose_jump_max_mm,
+            "localization_yaw_jump_max_deg": profile.localization_yaw_jump_max_deg,
+            "perception_geometry_jump_max_mm": profile.perception_geometry_jump_max_mm,
+            "stopper_distance_jump_max_mm": profile.stopper_distance_jump_max_mm,
+            "module_min_evidence_score": profile.module_min_evidence_score,
+            "module_primary_margin_score": profile.module_primary_margin_score,
         },
         **visualization_data,
     }
@@ -652,6 +1576,8 @@ def _analyze_parsed_log(
         },
         "key_metrics": key_metrics,
         "top_anomalies": anomalies_sorted,
+        "module_signals": module_signals,
+        "module_diagnosis": module_diagnosis,
         "parse_warnings": parse_warnings,
         "trajectory_preview": trajectory_preview,
         "cycle_metrics_preview": cycle_metrics_preview,
@@ -692,7 +1618,10 @@ def _analyze_parsed_log(
         "top_anomalies": anomalies_sorted,
         "report_path": report_path,
         "dashboard_path": dashboard_path,
+        "module_signals": module_signals,
+        "module_diagnosis": module_diagnosis,
         "parse_warnings": parse_warnings,
+        "resolved_log_paths": [str(path) for path in log_paths],
         "profile": profile.name,
         "visualizations": visualizations,
     }
@@ -717,14 +1646,11 @@ def analyze_planning_log(
     viz_backend: Any = "matplotlib-svg",
 ) -> dict[str, Any]:
     try:
-        resolved_log_paths = _resolve_log_paths(log_path, log_paths)
+        resolved_log_paths, resolution_warnings = _resolve_log_paths(log_path, log_paths)
     except ValueError as exc:
         return build_error_payload(str(exc))
     if not resolved_log_paths:
         return build_error_payload("Missing required argument: log_path or log_paths")
-    for resolved_log_path in resolved_log_paths:
-        if not resolved_log_path.exists() or not resolved_log_path.is_file():
-            return build_error_payload(f"log file not found: {resolved_log_path}")
 
     focus_value = _normalize_focus(focus)
     save_report_value = to_bool(save_report, True)
@@ -750,7 +1676,7 @@ def analyze_planning_log(
         else:
             parsed = parse_planning_log_files(resolved_log_paths, max_lines_value)
     except Exception as exc:
-        return build_error_payload(f"failed to read log file: {exc}")
+        return build_error_payload(f"failed to read log file: {exc}", resolution_warnings)
 
     return _analyze_parsed_log(
         parsed=parsed,
@@ -766,6 +1692,7 @@ def analyze_planning_log(
         generate_process_replay=generate_process_replay_value,
         generate_gridmap_view=generate_gridmap_view_value,
         viz_backend=viz_backend_value,
+        parse_warnings_prefix=resolution_warnings,
     )
 
 
@@ -840,6 +1767,8 @@ def batch_analyze_logs(
                 "report_path": result.get("report_path"),
                 "dashboard_path": result.get("dashboard_path"),
                 "top_rules": [anomaly.get("rule") for anomaly in result.get("top_anomalies", [])[:6]],
+                "module_diagnosis": result.get("module_diagnosis"),
+                "module_signals": result.get("module_signals", [])[:8],
                 "visualizations": result.get("visualizations"),
                 "error": result.get("error"),
             }

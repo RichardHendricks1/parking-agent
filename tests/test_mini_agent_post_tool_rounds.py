@@ -28,7 +28,16 @@ class _DummyPlanningTool(Tool):
     }
 
     def run(self, **kwargs):
-        return json.dumps({"planning": kwargs.get("value")})
+        return json.dumps(
+            {
+                "planning": kwargs.get("value"),
+                "module_diagnosis": {
+                    "primary_module": "planning",
+                    "confidence_0_to_1": 0.88,
+                    "reason": "Primary suspect is planning.",
+                },
+            }
+        )
 
 
 class _FakeProvider:
@@ -40,6 +49,21 @@ class _FakeProvider:
         idx = min(self.calls, len(self.responses) - 1)
         self.calls += 1
         return self.responses[idx]
+
+
+class _PromptAwareProvider:
+    def __init__(self):
+        self.calls = 0
+
+    def chat(self, messages, tools, *, max_tokens, temperature):
+        self.calls += 1
+        if self.calls == 1:
+            return _tool_call_response(tool_name="analyze_planning_log")
+        if self.calls == 2:
+            return _assistant_response("first conclusion")
+        assert "module_diagnosis" in messages[-1]["content"]
+        assert "primary_module、confidence_0_to_1 和 reason" in messages[-1]["content"]
+        return _assistant_response("refined with module diagnosis")
 
 
 def _tool_call_response(tool_name: str = "dummy_tool"):
@@ -131,3 +155,13 @@ def test_agent_does_not_run_extra_rounds_for_non_target_tool(tmp_path):
 
     assert out == "plain conclusion"
     assert provider.calls == 2
+
+
+def test_agent_refinement_prompt_mentions_module_diagnosis_fields(tmp_path):
+    provider = _PromptAwareProvider()
+    agent = _build_agent(tmp_path, provider, rounds=2, planning_tool=True)
+
+    out = agent.chat_once("analyze")
+
+    assert out == "refined with module diagnosis"
+    assert provider.calls == 3
